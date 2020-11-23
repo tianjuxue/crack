@@ -101,10 +101,10 @@ BC = [BC_bottom,
 BC_d = []
   
 # mark boundaries
-boundaries = MeshFunction('size_t', mesh, dim-1)
+boundaries = MeshFunction('size_t', mesh, dim - 1)
 boundaries.set_all(0)
 
-top.mark(boundaries,1)
+top.mark(boundaries, 1)
   
 ds = Measure("ds")(subdomain_data=boundaries)
 n  = FacetNormal(mesh)
@@ -284,8 +284,8 @@ solver_d.parameters.update(snes_prm)
 # ---------------------------------------------------------------- 
 # Solve system & output results
 # ----------------------------------------------------------------
-vtkfile_u     = File('data/pvd/u.pvd')
-vtkfile_d     = File('data/pvd/d.pvd')
+vtkfile_u     = File('data/pvd/double_notch/u.pvd')
+vtkfile_d     = File('data/pvd/double_notch/d.pvd')
 
 t = t_i
 sigmas = []
@@ -332,10 +332,7 @@ while t <= t_f:
 
         x_old.assign(x_new)
         d_old.assign(d_new)
-        H_old.assign(project(
-            conditional(
-                lt(H_old, psi_cr + (1./2.) *
-                   (psi(x_new)-psi_cr + abs(psi(x_new)-psi_cr))),
+        H_old.assign(project(conditional(lt(H_old, psi_cr + (1./2.) * (psi(x_new)-psi_cr + abs(psi(x_new)-psi_cr))),
                 psi_cr + (1./2.)*(psi(x_new)-psi_cr + abs(psi(x_new)-psi_cr)),
                 H_old
             ), WW))

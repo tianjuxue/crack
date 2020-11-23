@@ -41,7 +41,7 @@ def gray(image):
     return image
 
 def test():
-    frames = gray(pims.open('data/png/*.png'))
+    frames = gray(pims.open('data/png/crack_tip/*.png'))
     print(frames)
     print(frames[0][100, :])
     plt.imshow(frames[0])
