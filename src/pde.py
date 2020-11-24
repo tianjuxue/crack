@@ -6,95 +6,120 @@ import mshr
 import matplotlib.pyplot as plt
 import glob
 import os
-
-
-fe.parameters["form_compiler"]["quadrature_degree"] = 4
-
-
-# Material parameters 1 (micropolar elasticity)
-G  = 12.5e3    # Shear modulus [MPa]
-nu = 0.2       # Poisson's ratio
  
 
-# Material parameters 2 (phase field fracture)
-Gc     = 0.1     # Critical energy release rate [N/mm]
-lc     = 0.75    # Length scale [mm]
-psi_cr = 0.001   # Threshold strain energy per unit volume [MJ/m3]
-p      = 10.0    # Shape parameter
+fe.parameters["form_compiler"]["quadrature_degree"] = 4
+dim = 2
+
+# psi_cr = 0.001   # Threshold strain energy per unit volume [MJ/m3]
+
+psi_cr = 0
 
 # Solver parameters
 t_i       = 0.0     # Initial t [sec]
-t_f       = 0.05     # Final t [sec]
-dt        = 0.001  # dt [sec]
+t_f       = 100    # Final t [sec]
+dt        = 1  # dt [sec]
 disp_rate = 1     # Displacement rate [mm/s]
 
 staggered_tol     = 1e-6 # tolerance for the staggered scheme
-staggered_maxiter = 10   # max. iteration for the staggered scheme
+staggered_maxiter = 100   # max. iteration for the staggered scheme
 newton_Rtol       = 1e-8 # relative tolerance for Newton solver (balance eq.)
 newton_Atol       = 1e-8 # absoulte tolerance for Newton solver (balance eq.)
-newton_maxiter    = 20   # max. iteration for Newton solver (balance eq.)
+newton_maxiter    = 30   # max. iteration for Newton solver (balance eq.)
 snes_Rtol         = 1e-9 # relative tolerance for SNES solver (phase field eq.)
 snes_Atol         = 1e-9 # absolute tolerance for SNES solver (phase field eq.)
 snes_maxiter      = 30   # max. iteration for SNEs solver (phase field eq.)
 
-lamda = G*((2.*nu)/(1.-2.*nu))
+
+G  = 0.19
+nu = 0.45 
+lamda = G * ((2. * nu) / (1. - 2. * nu))
 mu = G
-m = 3.*Gc/(8.*lc*psi_cr)
+kappa = lamda + 2. / 3. * mu
+ 
+
+Gc_0 = 0.1
+l0 = 1
 
 
-def DeformationGradient(u):
-    I = fe.Identity(u.geometric_dimension())
-    return fe.variable(I + fe.grad(u))
+def H(u_new, H_old):
+    I = fe.Identity(dim)
+    psi_i_new = psi_plus(I + fe.grad(u_new))  
+    history_max_tmp = fe.conditional(fe.gt(psi_i_new, psi_cr), psi_i_new, psi_cr)
+    history_max = fe.conditional(fe.gt(history_max_tmp, H_old), history_max_tmp, H_old)
+    return history_max
 
 
-def epsilon(u):
-  strain = fe.as_tensor([[ u[0].dx(0), u[1].dx(0)],
-                      [ u[0].dx(1), u[1].dx(1)]])  
-  return strain
-  
+def psi_aux(F):
+    J = fe.det(F)
+    C = F.T * F
+    Jinv = J**(-2 / 3)
+    U = 0.5 * kappa * (0.5 * (J**2 - 1) - fe.ln(J))
+    Wbar = 0.5 * mu * (Jinv * (fe.tr(C) + 1) - 3)
+    return U, Wbar
 
-def epsilon_sym(u):
-    strain_sym = fe.as_tensor([[u[0].dx(0),  (1./2.)*(u[0].dx(1) + u[1].dx(0))],
-                            [(1./2.)*(u[0].dx(1) + u[1].dx(0)), u[1].dx(1)]])
-    return strain_sym
-
-
-def sigma(u):
-    eps_sym = epsilon_sym(u)
-    stress_B = lamda*fe.tr(eps_sym)*fe.Identity(2) + (2.*mu)*eps_sym
-    return stress_B
+    
+def psi_plus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return fe.conditional(fe.lt(J, 1), Wbar, U + Wbar)
 
 
-def psi(u):
-    eps_sym = epsilon_sym(u)
-    eps1 = (1./2.)*fe.tr(eps_sym) + fe.sqrt((1./4.)*(fe.tr(eps_sym)**2) - fe.det(eps_sym))
-    eps2 = (1./2.)*fe.tr(eps_sym) - fe.sqrt((1./4.)*(fe.tr(eps_sym)**2) - fe.det(eps_sym))
-    tr_eps_plus = (1./2.)*(fe.tr(eps_sym) + abs(fe.tr(eps_sym)))
-    eps_plus_doubledot_eps_plus = ((1./2.)*(eps1 + abs(eps1)))**2 + ((1./2.)*(eps2 + abs(eps2)))**2
-    energy = (1./2.)*lamda*(tr_eps_plus**2) + (mu)*eps_plus_doubledot_eps_plus
-    return energy
+def psi_minus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return fe.conditional(fe.lt(J, 1), U, 0)
 
 
-def H(u_old, u_new, H_old):
-    psi_i_new = psi(u_new) - psi_cr
-    psi_i_old = psi(u_old) - psi_cr
-    psi_new = psi_cr + (1./2.) * (psi_i_new + abs(psi_i_new))
-    psi_old = psi_cr + (1./2.) * (psi_i_old + abs(psi_i_old))
-    return fe.conditional(fe.lt(psi_old, psi_new), psi_new, H_old)
+def psi_plus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return U + Wbar
+
+
+def psi_minus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return 0
+
+def psi(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return  U + Wbar 
 
 
 def g_d(d):
-    numerator = (1. - d)**2
-    denominator = (1. - d)**2 + m * d * (1. + p * d)
-    g_d_val = numerator / denominator
-    return g_d_val
+    # m = 1e-4
+    m = 2
+    degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
+    return degrad 
 
 
-def g_d_prime(d):
-    numerator = (d - 1.) * (d * (2. * p + 1.) + 1.) * m
-    denominator = ((d**2) * (m * p + 1.) + d * (m - 2.) + 1.)**2
-    g_d_prime_val = numerator/denominator
-    return g_d_prime_val
+def g_d_prime(d, degrad_func):
+    d = fe.variable(d)
+    degrad = degrad_func(d)
+    degrad_prime = fe.diff(degrad, d)
+    return degrad_prime
+
+
+def first_PK_stress_plus(F):
+    F = fe.variable(F)
+    energy_plus = psi_plus(F)
+    P_plus = fe.diff(energy_plus, F)
+    return P_plus
+
+    
+def first_PK_stress_minus(F):
+    F = fe.variable(F)
+    energy_minus = psi_minus(F)
+    P_minus = fe.diff(energy_minus, F)
+    return P_minus
+
+def first_PK_stress(F):
+    F = fe.variable(F)
+    energy = psi(F)
+    P = fe.diff(energy, F)
+    return P
 
 
 def phase_field():
@@ -117,6 +142,7 @@ def phase_field():
     material_domain = plate - circle1 - circle2
     mesh = mshr.generate_mesh(material_domain, 100)
 
+
     class Left(fe.SubDomain):
         def inside(self, x, on_boundary):
             return on_boundary and fe.near(x[0], 0)
@@ -138,12 +164,13 @@ def phase_field():
     BC = [BC_u_left, BC_u1_right, BC_u2_right]     
     BC_d = []
 
-    normal = fe.FacetNormal(mesh)
-
     boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim() - 1)
     boundaries.set_all(0)
     right.mark(boundaries, 1)
     ds = fe.Measure("ds")(subdomain_data=boundaries)
+
+    I = fe.Identity(dim)
+    normal = fe.FacetNormal(mesh)
 
     eta = fe.TestFunction(U)
     zeta = fe.TestFunction(W)
@@ -159,28 +186,33 @@ def phase_field():
 
     H_old = fe.Function(W)
 
-    G_ut = g_d(d_new) * fe.inner(epsilon(eta), sigma(x_new)) * fe.dx
+    G_ut = (g_d(d_new) * fe.inner(first_PK_stress_plus(I + fe.grad(x_new)), fe.grad(eta)) \
+         + fe.inner(first_PK_stress_minus(I + fe.grad(x_new)), fe.grad(eta))) * fe.dx
+ 
+    # G_d = H(x_new, H_old) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+    #     + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+
+    G_d = psi_plus(I + fe.grad(x_new)) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+        + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+
+
     J_ut = fe.derivative(G_ut, x_new, del_x)
-
-    # Weak form: phase-field equation
-    G_d = H(x_old, x_new, H_old)*fe.inner(zeta, g_d_prime(d_new)) * fe.dx \
-        + (3.*Gc/(8.*lc)) * (zeta + (2.*lc**2)*fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
-
     J_d = fe.derivative(G_d, d_new, del_d) 
 
     d_min = fe.interpolate(fe.Constant(fe.DOLFIN_EPS), W) 
     d_max = fe.interpolate(fe.Constant(1.0), W)      
 
-    # Problem definition
     p_ut = fe.NonlinearVariationalProblem(G_ut, x_new, BC,   J_ut)
     p_d  = fe.NonlinearVariationalProblem(G_d,  d_new, BC_d, J_d)
-    p_d.set_bounds(d_min, d_max) # set bounds for the phase field
 
-    # Construct solvers
+    # p_d.set_bounds(d_min, d_max)  
+
+ 
     solver_ut = fe.NonlinearVariationalSolver(p_ut)
     solver_d  = fe.NonlinearVariationalSolver(p_d)
 
-    # Set nonlinear solver parameters
     newton_prm = solver_ut.parameters['newton_solver']
     newton_prm['relative_tolerance'] = newton_Rtol
     newton_prm['absolute_tolerance'] = newton_Atol
@@ -189,16 +221,16 @@ def phase_field():
     newton_prm['linear_solver'] = 'mumps'
 
 
-    snes_prm = {"nonlinear_solver": "snes",
-                "snes_solver"     : { "method": "vinewtonssls",
-                                      "line_search": "basic",
-                                      "maximum_iterations": snes_maxiter,
-                                      "relative_tolerance": snes_Rtol,
-                                      "absolute_tolerance": snes_Atol,
-                                      "report": True,
-                                      "error_on_nonconvergence": False,
-                                    }}
-    solver_d.parameters.update(snes_prm)
+    # snes_prm = {"nonlinear_solver": "snes",
+    #             "snes_solver"     : { "method": "vinewtonssls",
+    #                                   "line_search": "basic",
+    #                                   "maximum_iterations": snes_maxiter,
+    #                                   "relative_tolerance": snes_Rtol,
+    #                                   "absolute_tolerance": snes_Atol,
+    #                                   "report": True,
+    #                                   "error_on_nonconvergence": False,
+    #                                 }}
+    # solver_d.parameters.update(snes_prm)
 
 
     vtkfile_u = fe.File('data/pvd/circular_holes/u.pvd')
@@ -207,7 +239,7 @@ def phase_field():
     t = t_i
     sigmas = []
     deltaUs = []
-    forceForm = sigma(x_new)[1, 1]*ds(1)
+    forceForm = (first_PK_stress(I + fe.grad(x_new))[0, 0])*ds(1)
 
     while t <= t_f:
 
@@ -221,13 +253,13 @@ def phase_field():
         presLoad.t = t*disp_rate
 
         iteration = 0
-        err = 1
+        err = 1.
 
         while err > staggered_tol:
             iteration += 1
 
             print('---------------------------------------------------------------------------------')
-            print('>> iteration. %d, error = %.5g' % (iteration, err))
+            print('>> iteration. {}, error = {:.5}'.format(iteration, err))
             print('---------------------------------------------------------------------------------')
 
             # solve phase field equation
@@ -249,10 +281,7 @@ def phase_field():
 
             x_old.assign(x_new)
             d_old.assign(d_new)
-            H_old.assign(fe.project(fe.conditional(fe.lt(H_old, psi_cr + (1./2.) * (psi(x_new)-psi_cr + abs(psi(x_new)-psi_cr))),
-                    psi_cr + (1./2.)*(psi(x_new)-psi_cr + abs(psi(x_new)-psi_cr)),
-                    H_old
-                ), WW))
+            H_old.assign(fe.project(H(x_new, H_old), WW))
 
             if err < staggered_tol or iteration >= staggered_maxiter:
 
@@ -265,7 +294,7 @@ def phase_field():
 
                 vtkfile_u << x_new
                 vtkfile_d << d_new
-                deltaUs.append(t*disp_rate)
+                deltaUs.append(t * disp_rate)
                 sigmas.append(fe.assemble(forceForm))
 
                 break
