@@ -184,7 +184,7 @@ def phase_field():
     d_new = fe.Function(W)
     d_old = fe.Function(W) 
 
-    H_old = fe.Function(W)
+    H_old = fe.Function(WW)
 
     G_ut = (g_d(d_new) * fe.inner(first_PK_stress_plus(I + fe.grad(x_new)), fe.grad(eta)) \
          + fe.inner(first_PK_stress_minus(I + fe.grad(x_new)), fe.grad(eta))) * fe.dx

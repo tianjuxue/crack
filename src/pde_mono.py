@@ -1,0 +1,274 @@
+import fenics as fe
+import sys
+import time
+import numpy as np
+import mshr
+import matplotlib.pyplot as plt
+import glob
+import os
+ 
+
+fe.parameters["form_compiler"]["quadrature_degree"] = 4
+dim = 2
+
+
+psi_cr = 0.001   # Threshold strain energy per unit volume [MJ/m3]
+
+t_i = 0.0    # Initial t [sec]
+t_f = 1000    # Final t [sec]
+dt = 1      # dt [sec]
+disp_rate = 0.01    # Displacement rate [mm/s]
+
+
+
+G  = 1e3         
+# G  = 0.19          # Shear modulus [Mpa]
+nu = 0.45          # Poisson's ratio
+lamda = G * ((2. * nu) / (1. - 2. * nu))
+mu = G
+kappa = lamda + 2. / 3. * mu
+beta = 2 * nu / (1 - 2 * nu)
+
+Gc_0 = 0.1
+l0 = 0.5
+
+
+def H(u_new, H_old):
+    I = fe.Identity(dim)
+    psi_i_new = psi_plus(I + fe.grad(u_new))  
+    history_max_tmp = fe.conditional(fe.gt(psi_i_new, psi_cr), psi_i_new, psi_cr)
+    history_max = fe.conditional(fe.gt(history_max_tmp, H_old), history_max_tmp, H_old)
+    return history_max
+
+
+def strain(grad_u):
+    return 0.5*(grad_u + grad_u.T)
+
+def linear_elasticity_psi_plus(epsilon):
+    return linear_elasticity_psi(epsilon)
+
+def linear_elasticity_psi_minus(epsilon):
+    return 0
+
+def linear_elasticity_psi(epsilon):
+    return lamda / 2 * fe.tr(epsilon)**2 + mu * fe.inner(epsilon, epsilon)
+
+def cauchy_stress_plus(epsilon):
+    epsilon = fe.variable(epsilon)
+    energy_plus = linear_elasticity_psi_plus(epsilon)
+    sigma_plus = fe.diff(energy_plus, epsilon)
+    return sigma_plus
+
+    
+def cauchy_stress_minus(epsilon):
+    epsilon = fe.variable(epsilon)
+    energy_minus = linear_elasticity_psi_minus(epsilon)
+    sigma_minus = fe.diff(energy_minus, epsilon)
+    return sigma_minus
+
+def cauchy_stress(epsilon):
+    epsilon = fe.variable(epsilon)
+    energy = cauchy_stress_plus(epsilon)
+    sigma = fe.diff(energy, epsilon)
+    return sigma
+
+
+
+def psi_aux(F):
+    J = fe.det(F)
+    C = F.T * F
+    Jinv = J**(-2 / 3)
+    U = 0.5 * kappa * (0.5 * (J**2 - 1) - fe.ln(J))
+    Wbar = 0.5 * mu * (Jinv * (fe.tr(C) + 1) - 3)
+    return U, Wbar
+
+
+def psi_plus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return fe.conditional(fe.lt(J, 1), Wbar, U + Wbar)
+
+
+def psi_minus(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return fe.conditional(fe.lt(J, 1), U, 0)
+
+
+def psi(F):
+    J = fe.det(F)
+    U, Wbar = psi_aux(F)
+    return  U + Wbar 
+
+
+def g_d(d):
+    m = 2
+    degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
+    return degrad 
+
+
+def g_d_prime(d, degrad_func):
+    d = fe.variable(d)
+    degrad = degrad_func(d)
+    degrad_prime = fe.diff(degrad, d)
+    return degrad_prime
+
+
+def first_PK_stress_plus(F):
+    F = fe.variable(F)
+    energy_plus = psi_plus(F)
+    P_plus = fe.diff(energy_plus, F)
+    return P_plus
+
+    
+def first_PK_stress_minus(F):
+    F = fe.variable(F)
+    energy_minus = psi_minus(F)
+    P_minus = fe.diff(energy_minus, F)
+    return P_minus
+
+def first_PK_stress(F):
+    F = fe.variable(F)
+    energy = psi(F)
+    P = fe.diff(energy, F)
+    return P
+
+
+def phase_field():
+    '''
+    Try to reproduce https://doi.org/10.1016/j.cma.2014.11.016
+    '''
+    files = glob.glob('data/pvd/circular_holes/*')
+    for f in files:
+        try:
+            os.remove(f)
+        except Exception as e:
+            print('Failed to delete {}, reason: {}' % (f, e))
+
+    length = 60
+    height = 30
+    radius = 5
+    plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(length, height))
+    circle1 = mshr.Circle(fe.Point(length/3, height/3), radius)
+    circle2 = mshr.Circle(fe.Point(length*2/3, height*2/3), radius)
+    material_domain = plate - circle1 - circle2
+    mesh = mshr.generate_mesh(material_domain, 100)
+
+
+    class Left(fe.SubDomain):
+        def inside(self, x, on_boundary):
+            return on_boundary and fe.near(x[0], 0)
+
+    class Right(fe.SubDomain):
+        def inside(self, x, on_boundary):
+            return on_boundary and fe.near(x[0], length)
+
+
+    U = fe.VectorElement('CG', mesh.ufl_cell(), 2)  
+    W = fe.FiniteElement("CG", mesh.ufl_cell(), 1)
+    M = fe.FunctionSpace(mesh, U * W)
+
+    WW = fe.FunctionSpace(mesh, 'DG', 0) 
+
+    left = Left()
+    right = Right()
+    presLoad = fe.Expression(("t", 0), t=0.0, degree=1)
+    BC_u_left = fe.DirichletBC(M.sub(0), fe.Constant((0.0, 0.0)), left)
+    BC_u_right = fe.DirichletBC(M.sub(0), presLoad, right)
+    BC = [BC_u_left, BC_u_right]     
+
+    boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim() - 1)
+    boundaries.set_all(0)
+    right.mark(boundaries, 1)
+    ds = fe.Measure("ds")(subdomain_data=boundaries)
+
+    I = fe.Identity(dim)
+    normal = fe.FacetNormal(mesh)
+
+    m_test = fe.TestFunctions(M)
+    m_delta = fe.TrialFunctions(M)
+    m_new = fe.Function(M)
+
+    (eta, zeta) = m_test
+    (x_new, d_new) = fe.split(m_new)
+
+    H_old = fe.Function(WW)
+
+    # G_ut = (g_d(d_new) * fe.inner(first_PK_stress_plus(I + fe.grad(x_new)), fe.grad(eta)) \
+    #      + fe.inner(first_PK_stress_minus(I + fe.grad(x_new)), fe.grad(eta))) * fe.dx
+ 
+    # # G_d = H(x_new, H_old) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+    # #     + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+    # G_d = psi_plus(I + fe.grad(x_new)) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+    #     + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+ 
+    G_ut = (g_d(d_new) * fe.inner(cauchy_stress_plus(strain(fe.grad(x_new))), strain(fe.grad(eta))) \
+         + fe.inner(cauchy_stress_minus(strain(fe.grad(x_new))), strain(fe.grad(eta)))) * fe.dx
+ 
+    # G_d = H(x_new, H_old) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+    #     + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+    G_d = linear_elasticity_psi_plus(strain(fe.grad(x_new))) * zeta * g_d_prime(d_new, g_d) * fe.dx \
+        + Gc_0 * (1 / (2 * l0) * zeta * d_new + 2 * l0 * fe.inner(fe.grad(zeta), fe.grad(d_new))) * fe.dx  
+
+
+
+
+
+    G = G_ut + G_d
+
+    dG = fe.derivative(G, m_new)
+    p = fe.NonlinearVariationalProblem(G, m_new, BC, dG)
+    solver = fe.NonlinearVariationalSolver(p)
+     
+    newton_prm = solver.parameters['newton_solver']
+    # newton_prm['relaxation_parameter'] = 0.6
+    newton_prm['maximum_iterations'] = 1000
+    newton_prm['linear_solver'] = 'mumps'
+ 
+    vtkfile_u = fe.File('data/pvd/circular_holes/u.pvd')
+    vtkfile_d = fe.File('data/pvd/circular_holes/d.pvd')
+
+    t = t_i
+    sigmas = []
+    deltaUs = []
+    forceForm = (first_PK_stress(I + fe.grad(x_new))[0, 0])*ds(1)
+
+    while t <= t_f:
+
+        t += dt
+
+        print(' ')
+        print('=================================================================================')
+        print('>> t =', t, '[sec]')
+        print('=================================================================================')
+
+        presLoad.t = t*disp_rate
+        solver.solve()
+ 
+        # H_old.assign(fe.project(H(x_new, H_old), WW))
+
+        print(
+            '=================================================================================')
+        print(' ')
+
+
+        (x_plot, d_plot) = m_new.split()
+        x_plot.rename("Displacement", "label")
+        d_plot.rename("Phase field", "label")
+
+        vtkfile_u << x_plot
+        vtkfile_d << d_plot
+        deltaUs.append(t * disp_rate)
+        sigmas.append(fe.assemble(forceForm))
+
+    plt.clf()
+    plt.plot(deltaUs, np.array(sigmas)/G)
+    plt.savefig("data/png/phase_field/stress-strain-curve.png")
+ 
+
+if __name__ == '__main__':
+    phase_field()
+    plt.show()
