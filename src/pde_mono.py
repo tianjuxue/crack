@@ -188,6 +188,7 @@ def phase_field():
     WW = fe.FunctionSpace(mesh, 'DG', 0) 
     EE = fe.FunctionSpace(mesh, 'CG', 1) 
 
+    # TODO(Tianju): substitude into functions to make the code shorter
     left = Left()
     right = Right()
     corner = Corner()
