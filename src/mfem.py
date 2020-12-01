@@ -7,69 +7,6 @@ import matplotlib.pyplot as plt
 import glob
 import os
 
-   
-def minDistance(P, A=[-1, 0], B=[1, 0]):    
-    # vector AB  
-    AB = [None, None];  
-    AB[0] = B[0] - A[0];  
-    AB[1] = B[1] - A[1];  
-  
-    # vector BP  
-    BP = [None, None]; 
-    BP[0] = P[0] - B[0];  
-    BP[1] = P[1] - B[1];  
-  
-    # vector AP  
-    AP = [None, None]; 
-    AP[0] = P[0] - A[0]; 
-    AP[1] = P[1] - A[1];  
-  
-    # Variables to store dot product  
-  
-    # Calculating the dot product  
-    AB_BP = AB[0] * BP[0] + AB[1] * BP[1];  
-    AB_AP = AB[0] * AP[0] + AB[1] * AP[1];  
-  
-    # Minimum distance from  
-    # point P to the line segment  
-    reqAns = 0;  
-  
-    # Case 1  
-    if (AB_BP > 0) : 
-  
-        # Finding the magnitude  
-        y = P[1] - B[1];  
-        x = P[0] - B[0];  
-        reqAns = fe.sqrt(x * x + y * y);  
-  
-    # Case 2  
-    elif (AB_AP < 0) : 
-        y = P[1] - A[1];  
-        x = P[0] - A[0];  
-        reqAns = fe.sqrt(x * x + y * y);  
-  
-    # Case 3  
-    else: 
-  
-        # Finding the perpendicular distance  
-        x1 = AB[0];  
-        y1 = AB[1];  
-        x2 = AP[0];  
-        y2 = AP[1];  
-        mod = fe.sqrt(x1 * x1 + y1 * y1);  
-        reqAns = np.absolute(x1 * y2 - y1 * x2) / mod;  
-      
-    return reqAns; 
-
-
-class FractureExpression(fe.UserExpression):
-
-    def eval(self, values, x):
-         values[0] = minDistance(x)
-
-    def value_shape(self):
-        return ()
-
 
 def distance_function(P, A=[-1, 0], B=[1, 0]):     
     AB = [None, None]
@@ -115,7 +52,7 @@ def ratio_function(ratio):
 
 
 def map_function(x_hat):
-    rho = 0.8
+    rho = 1
     x_hat = fe.variable(x_hat)
     df = distance_function(x_hat)
     grad_x_hat = fe.diff(df, x_hat)
@@ -141,13 +78,17 @@ def mfem():
     U = fe.VectorFunctionSpace(mesh, 'CG', 2)
 
     V = fe.FunctionSpace(mesh, "CG", 1)
-    d = fe.interpolate(FractureExpression(), V)
+    d = fe.interpolate(fe.Constant(0), V)
 
     u = fe.TrialFunction(U)
     v = fe.TestFunction(U)
 
     x_hat = fe.SpatialCoordinate(mesh)
     delta_x = map_function(x_hat)
+
+    u = fe.project(delta_x, U)
+
+    exit()
 
     # y = fe.diff(fe.dot(x, x), x)
 
