@@ -1,21 +1,34 @@
 import fenics as fe
 
 
-G  = 0.19          # Shear modulus [Mpa]
-nu = 0.45          # Poisson's ratio
-lamda = G * ((2. * nu) / (1. - 2. * nu))
-mu = G
-kappa = lamda + 2. / 3. * mu
-E = 3 * kappa * (1 - 2 * nu)
-beta = 2 * nu / (1 - 2 * nu)
+# ---------------------------------------------------------------- 
+# History functions
 
-
-def H(u_new, H_old, I, psi_cr):
-    psi_new = psi(I + fe.grad(u_new))  
+def history(u_new, H_old, I, psi_cr, psi_plus):
+    psi_new = psi_plus(I + fe.grad(u_new))  
     history_max_tmp = fe.conditional(fe.gt(psi_new - psi_cr, 0), psi_new - psi_cr, 0)
     history_max = fe.conditional(fe.gt(history_max_tmp, H_old), history_max_tmp, H_old)
     return history_max
 
+
+# ---------------------------------------------------------------- 
+# Degradation functions
+
+def g_d(d):
+    m = 2
+    degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
+    return degrad 
+
+
+def g_d_prime(d, degrad_func):
+    d = fe.variable(d)
+    degrad = degrad_func(d)
+    degrad_prime = fe.diff(degrad, d)
+    return degrad_prime
+
+
+# ---------------------------------------------------------------- 
+# Linear elasticity
 
 def strain(grad_u):
     return 0.5*(grad_u + grad_u.T)
@@ -49,8 +62,14 @@ def cauchy_stress(epsilon):
     return sigma
 
 
+# ---------------------------------------------------------------- 
+# Nonlinear material models
 
-def psi_aux(F):
+
+# ---------------------------------------------------------------- 
+# Borden2016_plasticity: https://doi.org/10.1016/j.cma.2016.09.005
+
+def psi_aux_Borden(F, mu, kappa):
     J = fe.det(F)
     C = F.T * F
     Jinv = J**(-2 / 3)
@@ -59,59 +78,60 @@ def psi_aux(F):
     return U, Wbar
 
 
-def psi_plus(F):
+def psi_plus_Borden(F, mu, kappa):
     J = fe.det(F)
-    U, Wbar = psi_aux(F)
+    U, Wbar = psi_aux_Borden(F, mu, kappa)
     return fe.conditional(fe.lt(J, 1), Wbar, U + Wbar)
 
 
-def psi_minus(F):
+def psi_minus_Borden(F, mu, kappa):
     J = fe.det(F)
-    U, Wbar = psi_aux(F)
+    U, Wbar = psi_aux_Borden(F, mu, kappa)
     return fe.conditional(fe.lt(J, 1), U, 0)
 
 
-# def psi(F):
-#     J = fe.det(F)
-#     U, Wbar = psi_aux(F)
-#     return  U + Wbar 
+def psi_Borden(F, mu, kappa):
+    J = fe.det(F)
+    U, Wbar = psi_aux_Borden(F, mu, kappa)
+    return  U + Wbar 
+ 
 
+# ---------------------------------------------------------------- 
+# Miehe2014_finie_strain: https://doi.org/10.1016/j.cma.2014.11.016
 
-def psi(F):
+def psi_Miehe(F, mu, beta):
     J = fe.det(F)
     C = F.T * F
     W = mu / 2 * (fe.tr(C) + 1 - 3) + mu / beta * (J**(-beta) - 1)
     return W
 
 
-def g_d(d):
-    m = 2
-    degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
-    return degrad 
+def psi_plus_Miehe(F, mu, beta):
+    return  psi_Miehe(F, mu, beta)
 
 
-def g_d_prime(d, degrad_func):
-    d = fe.variable(d)
-    degrad = degrad_func(d)
-    degrad_prime = fe.diff(degrad, d)
-    return degrad_prime
+def psi_minus_Miehe(F, mu, beta):
+    return 0
 
+    
+# ---------------------------------------------------------------- 
+# first Piola-Kirchhoff stress
 
-def first_PK_stress_plus(F):
+def first_PK_stress_plus(F, psi_plus):
     F = fe.variable(F)
     energy_plus = psi_plus(F)
     P_plus = fe.diff(energy_plus, F)
     return P_plus
 
-    
-def first_PK_stress_minus(F):
+
+def first_PK_stress_minus(F, psi_minus):
     F = fe.variable(F)
     energy_minus = psi_minus(F)
     P_minus = fe.diff(energy_minus, F)
     return P_minus
 
 
-def first_PK_stress(F):
+def first_PK_stress(F, psi):
     F = fe.variable(F)
     energy = psi(F)
     P = fe.diff(energy, F)

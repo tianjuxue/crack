@@ -13,8 +13,7 @@ parser.add_argument(
         '--verbose',
         help='Verbose for debug',
         action='store_true',
-        default=False)
-
+        default=True)
 
 
 args = parser.parse_args()
@@ -23,5 +22,3 @@ if args.verbose:
     fe.set_log_level(20)
 else:
     fe.set_log_level(30)
-
-
