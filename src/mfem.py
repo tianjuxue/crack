@@ -88,15 +88,11 @@ def mfem():
 
     u = fe.project(delta_x, U)
 
-    exit()
+    # a = fe.dot(u, v) * fe.dx
+    # L = fe.dot(delta_x, v) * fe.dx
 
-    # y = fe.diff(fe.dot(x, x), x)
-
-    a = fe.dot(u, v) * fe.dx
-    L = fe.dot(delta_x, v) * fe.dx
-
-    u = fe.Function(U)
-    fe.solve(a == L, u, [])
+    # u = fe.Function(U)
+    # fe.solve(a == L, u, [])
 
     vtkfile_u = fe.File('data/pvd/mfem/u.pvd')
     u.rename("u", "u")

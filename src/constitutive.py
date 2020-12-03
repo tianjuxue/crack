@@ -4,8 +4,7 @@ import fenics as fe
 # ---------------------------------------------------------------- 
 # History functions
 
-def history(u_new, H_old, I, psi_cr, psi_plus):
-    psi_new = psi_plus(I + fe.grad(u_new))  
+def history(H_old, psi_new, psi_cr):
     history_max_tmp = fe.conditional(fe.gt(psi_new - psi_cr, 0), psi_new - psi_cr, 0)
     history_max = fe.conditional(fe.gt(history_max_tmp, H_old), history_max_tmp, H_old)
     return history_max
@@ -33,31 +32,36 @@ def g_d_prime(d, degrad_func):
 def strain(grad_u):
     return 0.5*(grad_u + grad_u.T)
 
-def linear_elasticity_psi_plus(epsilon):
-    return linear_elasticity_psi(epsilon)
 
-def linear_elasticity_psi_minus(epsilon):
+def psi_plus_linear_elasticity(epsilon, lamda, mu):
+    return psi_linear_elasticity(epsilon, lamda, mu)
+
+
+def psi_minus_linear_elasticity(epsilon, lamda, mu):
     return 0
 
-def linear_elasticity_psi(epsilon):
+
+def psi_linear_elasticity(epsilon, lamda, mu):
     return lamda / 2 * fe.tr(epsilon)**2 + mu * fe.inner(epsilon, epsilon)
 
-def cauchy_stress_plus(epsilon):
+
+def cauchy_stress_plus(epsilon, psi_plus):
     epsilon = fe.variable(epsilon)
-    energy_plus = linear_elasticity_psi_plus(epsilon)
+    energy_plus = psi_plus(epsilon)
     sigma_plus = fe.diff(energy_plus, epsilon)
     return sigma_plus
 
     
-def cauchy_stress_minus(epsilon):
+def cauchy_stress_minus(epsilon, psi_minus):
     epsilon = fe.variable(epsilon)
-    energy_minus = linear_elasticity_psi_minus(epsilon)
+    energy_minus = psi_minus(epsilon)
     sigma_minus = fe.diff(energy_minus, epsilon)
     return sigma_minus
 
-def cauchy_stress(epsilon):
+
+def cauchy_stress(epsilon, psi):
     epsilon = fe.variable(epsilon)
-    energy = cauchy_stress_plus(epsilon)
+    energy = psi(epsilon)
     sigma = fe.diff(energy, epsilon)
     return sigma
 
