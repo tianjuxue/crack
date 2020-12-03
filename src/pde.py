@@ -1,4 +1,5 @@
 import fenics as fe
+import dolfin_adjoint as da
 import sys
 import time
 import numpy as np
@@ -296,7 +297,8 @@ class HalfCrackSqaure(PDE):
     def __init__(self, args):
         self.case_name = "half_crack_square"
         super(HalfCrackSqaure, self).__init__(args)
-        self.displacements = np.linspace(0, 0.2, 101)
+        # self.displacements = np.linspace(0, 0.2, 101)
+        self.displacements = np.linspace(0.08, 0.2, 61)
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
         self.psi_cr = 0.01
         self.mu = 1e3

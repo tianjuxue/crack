@@ -6,9 +6,12 @@ import mshr
 import matplotlib.pyplot as plt
 import glob
 import os
+import ufl
+
+fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
-def distance_function(P, A=[-1, 0], B=[1, 0]):     
+def distance_function_line_segement(P, A=[-1, 0], B=[1, 0]):     
     AB = [None, None]
     AB[0] = B[0] - A[0]
     AB[1] = B[1] - A[1]
@@ -40,27 +43,40 @@ def distance_function(P, A=[-1, 0], B=[1, 0]):
     df3 = np.absolute(x1 * y2 - y1 * x2) / mod
 
     df = fe.conditional(fe.gt(AB_BP, 0), df1, fe.conditional(fe.lt(AB_AP, 0), df2, df3))
-
     return df
 
+
+def distance_function_point(P, A=[0, 0]):
+    x = P[0] - A[0]
+    y = P[1] - A[1]
+    return fe.sqrt(x * x + y * y)
+
+
+def distance_function_segments(P, points):
+    if len(points) == 1:
+        return distance_function_point(P, points[0])
+    else:
+        distance = distance_function_line_segement(P, points[0], points[1])
+        for i in range(len(points) - 1):
+            tmp = distance_function_line_segement(P, points[i], points[i + 1])
+            distance = ufl.Min(distance, tmp)
+
+    return distance
+ 
 
 def ratio_function(ratio):
     return fe.conditional(fe.lt(ratio, 1), ratio**2, ratio)
 
-# def ratio_function(ratio):
-#     return fe.conditional(fe.lt(ratio, 1), 1 - fe.exp(1 + 1 / (ratio**3 - 1)), ratio)
-
 
 def map_function(x_hat):
-    rho = 1
+    rho = 0.5
     x_hat = fe.variable(x_hat)
-    df = distance_function(x_hat)
+    df = distance_function_line_segement(x_hat)
     grad_x_hat = fe.diff(df, x_hat)
  
     ratio = df / rho
     delta_x = grad_x_hat * (rho * ratio_function(ratio) - df)
     return delta_x
-
 
 
 def mfem():
@@ -72,27 +88,30 @@ def mfem():
             print('Failed to delete {}, reason: {}' % (f, e))
 
     plate = mshr.Rectangle(fe.Point(-2, -2), fe.Point(2, 2))
-    mesh = mshr.generate_mesh(plate, 30)
+    mesh = mshr.generate_mesh(plate, 50)
     # mesh = fe.RectangleMesh(fe.Point(-2, -2), fe.Point(2, 2), 50, 50)
 
-    U = fe.VectorFunctionSpace(mesh, 'CG', 2)
-
-    V = fe.FunctionSpace(mesh, "CG", 1)
-    d = fe.interpolate(fe.Constant(0), V)
-
-    u = fe.TrialFunction(U)
-    v = fe.TestFunction(U)
-
     x_hat = fe.SpatialCoordinate(mesh)
-    delta_x = map_function(x_hat)
 
-    u = fe.project(delta_x, U)
+    U = fe.VectorFunctionSpace(mesh, 'CG', 2)
+    V = fe.FunctionSpace(mesh, "CG", 1)
 
+    points = [[-2, 0], [-1, 0], [0, 0], [1, 1]]
+    n = 100
+    points_long = np.stack((np.linspace(0, 1, n), np.linspace(0, 1, n)), axis=1)
+
+    dist = distance_function_segments(x_hat, points_long)
+    d = fe.project(dist, V)
+
+    # u = fe.TrialFunction(V)
+    # v = fe.TestFunction(V)
     # a = fe.dot(u, v) * fe.dx
-    # L = fe.dot(delta_x, v) * fe.dx
+    # L = fe.dot(dist, v) * fe.dx
+    # d = fe.Function(V)
+    # fe.solve(a == L, d, [])
 
-    # u = fe.Function(U)
-    # fe.solve(a == L, u, [])
+    delta_x = map_function(x_hat)
+    u = fe.project(delta_x, U)
 
     vtkfile_u = fe.File('data/pvd/mfem/u.pvd')
     u.rename("u", "u")
