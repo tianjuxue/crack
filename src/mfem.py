@@ -58,7 +58,6 @@ def distance_function_point(P, A=[0, 0]):
 
 
 def distance_function_segments(P, points, impact_radii):
-
     if len(points) == 1:
         return distance_function_point(P, points[0]), impact_radii[0]
     else:

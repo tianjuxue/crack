@@ -47,6 +47,9 @@ class PDE(object):
     def assign_initial_value(self):
         pass
 
+    def update_map(self):
+        pass
+
     def monolithic_solve(self):
         self.U = fe.VectorElement('CG', self.mesh.ufl_cell(), 2)  
         self.W = fe.FiniteElement("CG", self.mesh.ufl_cell(), 1)
@@ -101,7 +104,6 @@ class PDE(object):
             # E.assign(da.project(first_PK_stress(self.I + fe.grad(x_new))[0, 0], EE))
             
             print('=================================================================================')
-            print('\n')
 
             self.x_plot, self.d_plot = m_new.split()
             self.x_plot.rename("u", "u")
@@ -109,6 +111,8 @@ class PDE(object):
             vtkfile_u << self.x_plot
             vtkfile_d << self.d_plot
             vtkfile_e << E
+
+            self.update_map()
 
 
     def staggered_solve(self):
@@ -303,14 +307,18 @@ class HalfCrackSqaure(PDE):
         self.case_name = "half_crack_square"
         super(HalfCrackSqaure, self).__init__(args)
         # self.displacements = np.linspace(0, 0.2, 101)
-        # self.displacements = np.linspace(0.08, 0.2, 61)
-        self.displacements = np.linspace(0.08, 0.08, 1)
+        
+        self.displacements = np.linspace(0.08, 0.2, 61)
+        # self.displacements = np.linspace(0.08, 0.08, 1)
 
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
         self.psi_cr = 0.01
         self.mu = 1e3
         self.nu = 0.4
         self.lamda = self.mu * ((2. * self.nu) / (1. - 2. * self.nu))
+
+        self.rho_default = 25
+        self.initialize_control_points_and_impact_radii()
 
 
     def build_mesh(self):
@@ -393,6 +401,81 @@ class HalfCrackSqaure(PDE):
         return psi_new
 
 
+    def compute_impact_radius_tip_point(self, P, direct_vec=None):
+        radii = np.array([P[0], self.length - P[0], P[1], self.height - P[1]])
+        vectors = np.array([[-1., 0.], [1., 0.], [0., -1.], [0., 1.]])
+        impact_radius = self.rho_default
+        for i in range(len(radii)):
+            if direct_vec is not None:
+                if np.dot(direct_vec, vectors[i]) >= 0 and radii[i] < impact_radius:
+                    impact_radius = radii[i]
+            else:
+                if radii[i] < impact_radius:
+                    impact_radius = radii[i]
+
+        return impact_radius
+
+
+    def middle_vector(self, v1, v2):
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = v2 / np.linalg.norm(v2)
+        v_mid = v1 + v2
+        if np.linalg.norm(v_mid) < fe.DOLFIN_EPS:
+            return np.array([-v1[1], v1[0]])
+        else:
+            return v_mid / np.linalg.norm(v_mid)
+
+
+    def inside_domain(self, P):
+        return P[0] >= 0 and P[1] >= 0 and P[0] <= self.length and P[1] <= self.height
+
+
+    def binary_search(self, start_point, end_point):
+        assert self.inside_domain(start_point) and not self.inside_domain(end_point)
+        tol = 1e-5
+        val = np.min(np.array([start_point[0], self.length - start_point[0], start_point[1], self.height - start_point[1]]))
+        while val < 0 or val > tol:
+            mid_point = (start_point + end_point) / 2
+            if self.inside_domain(mid_point):
+                start_point = np.array(mid_point)
+            else:
+                end_point = np.array(mid_point)
+            val = np.min(np.array([mid_point[0], self.length - mid_point[0], mid_point[1], self.height - mid_point[1]]))
+        return mid_point
+
+
+    def compute_impact_radius_middle_point(self, P, angle_vec):
+        start_point1 = np.array(P)
+        end_point1 = start_point1 + angle_vec*1e3
+        mid_point1 = self.binary_search(start_point1, end_point1)
+        radius1 = np.linalg.norm(mid_point1 - P)
+
+        start_point2 = np.array(P)
+        end_point2 = start_point2 - angle_vec*1e3
+        mid_point2 = self.binary_search(start_point2, end_point2)
+        radius2 = np.linalg.norm(mid_point2 - P)
+
+        return np.min(np.array([radius1, radius2, self.rho_default]))
+
+
+    def compute_impact_radii(self, new_tip_point):
+        assert len(self.control_points) == len(self.impact_radii)
+        assert self.inside_domain(new_tip_point)
+        if len(self.control_points) == 0:
+            self.impact_radii = np.array([self.compute_impact_radius_tip_point(new_tip_point)])
+            self.control_points = new_tip_point.reshape(1, -1)
+        elif len(self.control_points) == 1:
+            self.impact_radii = np.append(self.impact_radii, self.compute_impact_radius_tip_point(new_tip_point, new_tip_point - self.control_points[-1]))
+            self.control_points = np.concatenate((self.control_points, new_tip_point.reshape(1, -1)), axis=0)
+        else:
+            self.impact_radii = self.impact_radii[:-1]
+            v1 = self.control_points[-2] - self.control_points[-1]
+            v2 = new_tip_point - self.control_points[-1]
+            self.impact_radii = np.append(self.impact_radii, self.compute_impact_radius_middle_point(self.control_points[-1], self.middle_vector(v1, v2)))
+            self.impact_radii = np.append(self.impact_radii, self.compute_impact_radius_tip_point(new_tip_point, new_tip_point - self.control_points[-1]))
+            self.control_points = np.concatenate((self.control_points, new_tip_point.reshape(1, -1)), axis=0)
+
+
     def identify_crack_tip(self):
 
         print('\n')
@@ -400,12 +483,15 @@ class HalfCrackSqaure(PDE):
         print('>> Identifying crack tip')
         print('=================================================================================')
 
-        tip1 = np.asarray([0., self.height/2])
+        # tip1 = np.asarray([0., self.height/2])
 
         def obj(x):
             p = da.Constant(x)
             x_coo = fe.SpatialCoordinate(self.mesh)
-            distance_field = distance_function_segments(x_coo, np.stack((tip1, p), axis=0))
+            control_points = list(self.control_points)
+            control_points.append(p)
+            pseudo_radii = np.zeros(len(control_points))
+            distance_field, _ = distance_function_segments(x_coo, control_points, pseudo_radii)
             d_artificial = fe.exp(-distance_field/self.l0) 
             L_tape = da.assemble((self.d_new - d_artificial)**2 * fe.dx)
             L = float(L_tape)
@@ -422,7 +508,9 @@ class HalfCrackSqaure(PDE):
             J = J_tape.values() 
             return J
 
-        x_initial = np.asarray([55., 55])
+        # x_initial = self.control_points[-1] + (self.control_points[-1] - self.control_points[-2])
+        x_initial = np.array([51, 51])
+
 
         options = {'eps': 1e-15, 'maxiter': 1000, 'disp': True}  # CG > BFGS > Newton-CG
         res = opt.minimize(fun=objective,
@@ -435,9 +523,40 @@ class HalfCrackSqaure(PDE):
         print("Optimized x is {}".format(res.x))
 
         print('=================================================================================')
-        print('\n')
 
-        return res.x, res.nfev
+        return res.x
+
+    def initialize_control_points_and_impact_radii(self):
+        self.control_points = []
+        self.impact_radii = []
+        control_points = np.asarray([[0., self.height/2], [1, self.height/2], [self.length/2 - 1, self.height/2], [self.length/2, self.height/2]])
+        # control_points = np.asarray([[0., 50], [50, 50], [80, 80], [90, 90], [100, 100]])
+        for new_tip_point in control_points:
+            self.compute_impact_radii(new_tip_point)
+
+
+    def update_map(self):
+        crack_increment_threshold = 5
+        new_tip_point = self.identify_crack_tip()
+        v1 = self.control_points[-1] - self.control_points[-2]
+        v2 = new_tip_point - self.control_points[-1]
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = v2 / np.linalg.norm(v2)
+
+        print("new_tip_point is {}".format(new_tip_point))
+        print("v1 is {}".format(v1))
+        print("v2 is {}".format(v2))
+
+        print("control points are \n{}".format(self.control_points))
+        print("impact_radii are {}".format(self.impact_radii))
+
+        d_int = fe.assemble(self.d_new * fe.dx)
+        print("d_int {}".format(float(d_int)))
+
+        # assert np.dot(v1, v2) < np.sqrt(2)/2, "Crack propogration angle not good"
+
+        # if np.linalg.norm(v2) > crack_increment_threshold:
+        #     self.compute_impact_radii(new_tip_point)
 
 
 def test(args):
@@ -447,7 +566,7 @@ def test(args):
     # pde_dc.staggered_solve()
     pde_hc = HalfCrackSqaure(args)
     pde_hc.monolithic_solve()
-    pde_hc.identify_crack_tip()
+    # pde_hc.identify_crack_tip()
 
 
 
