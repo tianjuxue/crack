@@ -12,7 +12,7 @@ import scipy.optimize as opt
 from pyadjoint.overloaded_type import create_overloaded_object
 from . import arguments
 from .constitutive import *
-from .mfem import distance_function_segments
+from .mfem import distance_function_segments_ufl, map_function_normal, inverse_map_function_normal, map_function_ufl
 
 
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
@@ -56,7 +56,8 @@ class PDE(object):
         self.M = fe.FunctionSpace(self.mesh, self.U * self.W)
 
         self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
-        EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
+        self.EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
+        self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 2)
 
         m_test = fe.TestFunctions(self.M)
         m_delta = fe.TrialFunctions(self.M)
@@ -68,20 +69,46 @@ class PDE(object):
         self.H_old = da.Function(self.WW)
         self.assign_initial_value()
 
-        E = da.Function(EE)
+        e = da.Function(self.EE)
+        map_plot = da.Function(self.MM)
+
+
+
+
+
+
+
+
+
+
+
+
 
         self.build_weak_form_monolithic()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         dG = fe.derivative(self.G, m_new)
 
         self.set_bcs_monolithic()
         p = fe.NonlinearVariationalProblem(self.G, m_new, self.BC, dG)
         solver = fe.NonlinearVariationalSolver(p)
 
-        vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
-        vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
-        vtkfile_e = fe.File('data/pvd/{}/e.pvd'.format(self.case_name))
+        file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
+        file_results.parameters["functions_share_mesh"] = True
 
-        for disp, rp in zip(self.displacements, self.relaxation_parameters):
+        for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
 
             print('\n')
             print('=================================================================================')
@@ -98,19 +125,25 @@ class PDE(object):
 
             solver.solve()
 
-            self.H_old.assign(da.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
+            self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
 
-            E.assign(da.project(self.psi_plus(strain(fe.grad(self.x_new))) , EE))
+            e.assign(da.project(self.psi_plus(strain(fe.grad(self.x_new))) , self.EE))
             # E.assign(da.project(first_PK_stress(self.I + fe.grad(x_new))[0, 0], EE))
-            
+            delta_x = self.x - self.x_hat
+            map_plot = fe.project(delta_x, self.MM)
+
             print('=================================================================================')
 
             self.x_plot, self.d_plot = m_new.split()
             self.x_plot.rename("u", "u")
             self.d_plot.rename("d", "d")
-            vtkfile_u << self.x_plot
-            vtkfile_d << self.d_plot
-            vtkfile_e << E
+            e.rename("e", "e")
+            map_plot.rename("m", "m")
+
+            file_results.write(self.x_plot, i)
+            file_results.write(self.d_plot, i)
+            file_results.write(e, i)
+            file_results.write(map_plot, i)
 
             self.update_map()
 
@@ -148,7 +181,7 @@ class PDE(object):
         vtkfile_u = fe.File('data/pvd/circular_holes/u.pvd')
         vtkfile_d = fe.File('data/pvd/circular_holes/d.pvd')
 
-        for disp, rp in zip(self.displacements, self.relaxation_parameters):
+        for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
 
             print('\n')
             print('=================================================================================')
@@ -307,7 +340,7 @@ class HalfCrackSqaure(PDE):
         self.case_name = "half_crack_square"
         super(HalfCrackSqaure, self).__init__(args)
         # self.displacements = np.linspace(0, 0.2, 101)
-        
+
         self.displacements = np.linspace(0.08, 0.2, 61)
         # self.displacements = np.linspace(0.08, 0.08, 1)
 
@@ -316,9 +349,11 @@ class HalfCrackSqaure(PDE):
         self.mu = 1e3
         self.nu = 0.4
         self.lamda = self.mu * ((2. * self.nu) / (1. - 2. * self.nu))
+        self.l0 =  self.mesh.hmin()
 
         self.rho_default = 25
         self.initialize_control_points_and_impact_radii()
+        self.d_integrals = []
 
 
     def build_mesh(self):
@@ -353,13 +388,18 @@ class HalfCrackSqaure(PDE):
         self.corner = Corner()
 
 
+
     def assign_initial_value(self):
+        print("assigning initial value of H_old")
         length = self.length
         height = self.height
         l0 = self.l0
         psi_cr = self.psi_cr
+        control_points = self.control_points
+        impact_radii = self.impact_radii
         class HistoryExpression(da.UserExpression):
             def eval(self, values, x):
+                x = map_function_normal(x, control_points, impact_radii)  
                 if x[0] > 0 and x[0] < length / 2 and x[1] > height / 2 - l0 / 2 and x[1] < height / 2 + l0 / 2:
                     values[0] = 1e3 * psi_cr
                 else:
@@ -367,6 +407,8 @@ class HalfCrackSqaure(PDE):
             def value_shape(self):
                 return ()
         self.H_old.assign(da.project(HistoryExpression(), self.WW))
+
+
 
 
     def set_bcs_monolithic(self):
@@ -383,21 +425,34 @@ class HalfCrackSqaure(PDE):
 
 
     def build_weak_form_monolithic(self):
+
+        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
+        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii)  
+        grad_gamma = fe.diff(self.x, self.x_hat)
+
+        def mfem_grad_wrapper(grad):
+            def mfem_grad(u):
+                return fe.dot(grad(u), fe.inv(grad_gamma))
+            return mfem_grad
+
+        self.mfem_grad = mfem_grad_wrapper(fe.grad)
+
         self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
         self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
 
-        sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
-        sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
+        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
+        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
 
-        G_ut = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
-            + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
-        G_d = self.H_old * self.zeta * g_d_prime(self.d_new, g_d) * fe.dx \
-            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new))) * fe.dx  
+        G_ut = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
+            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(grad_gamma) * fe.dx
+        G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
+            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(grad_gamma) * fe.dx
+
         self.G = G_ut + G_d
 
 
     def update_history(self):
-        psi_new = self.psi_plus(strain(fe.grad(self.x_new)))  
+        psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
         return psi_new
 
 
@@ -483,16 +538,14 @@ class HalfCrackSqaure(PDE):
         print('>> Identifying crack tip')
         print('=================================================================================')
 
-        # tip1 = np.asarray([0., self.height/2])
-
         def obj(x):
             p = da.Constant(x)
             x_coo = fe.SpatialCoordinate(self.mesh)
             control_points = list(self.control_points)
             control_points.append(p)
             pseudo_radii = np.zeros(len(control_points))
-            distance_field, _ = distance_function_segments(x_coo, control_points, pseudo_radii)
-            d_artificial = fe.exp(-distance_field/self.l0) 
+            distance_field, _ = distance_function_segments_ufl(x_coo, control_points, pseudo_radii)
+            d_artificial = fe.exp(-distance_field/self.l0)
             L_tape = da.assemble((self.d_new - d_artificial)**2 * fe.dx)
             L = float(L_tape)
             return L, L_tape, p
@@ -508,9 +561,10 @@ class HalfCrackSqaure(PDE):
             J = J_tape.values() 
             return J
 
-        # x_initial = self.control_points[-1] + (self.control_points[-1] - self.control_points[-2])
-        x_initial = np.array([51, 51])
-
+        if len(self.control_points) > 1:
+            x_initial = self.control_points[-1] + (self.control_points[-1] - self.control_points[-2])
+        else:
+            raise NotImplementedError("To be implemented!")
 
         options = {'eps': 1e-15, 'maxiter': 1000, 'disp': True}  # CG > BFGS > Newton-CG
         res = opt.minimize(fun=objective,
@@ -524,7 +578,10 @@ class HalfCrackSqaure(PDE):
 
         print('=================================================================================')
 
-        return res.x
+        new_tip_point = map_function_normal(res.x, self.control_points, self.impact_radii)
+
+        return new_tip_point
+
 
     def initialize_control_points_and_impact_radii(self):
         self.control_points = []
@@ -535,28 +592,74 @@ class HalfCrackSqaure(PDE):
             self.compute_impact_radii(new_tip_point)
 
 
+    def interpolate_H(self):
+        control_points_new_map = self.control_points
+        control_points_old_map = self.control_points[:-1]
+        impact_radii_new_map = self.impact_radii
+        impact_radii_old_map = self.impact_radii[:-1]
+
+        class InterpolateExpression(fe.UserExpression):
+            def __init__(self, H_old, control_points_new_map, control_points_old_map, impact_radii_new_map, impact_radii_old_map):
+                # Construction method of base class has to be called first
+                super(InterpolateExpression, self).__init__()
+                self.H_old = H_old
+                self.control_points_new_map = control_points_new_map
+                self.control_points_old_map = control_points_old_map
+                self.impact_radii_new_map = impact_radii_new_map
+                self.impact_radii_old_map = impact_radii_old_map
+
+            def eval(self, values, x_hat_new):
+                x = map_function_normal(x_hat_new, self.control_points_new_map, self.impact_radii_new_map)
+                x_hat_old = inverse_map_function_normal(x, self.control_points_old_map, self.impact_radii_old_map)
+                point = fe.Point(x_hat_old)
+                values[0] = self.H_old(point)
+ 
+            def value_shape(self):
+                return ()
+
+        H_exp = InterpolateExpression(self.H_old, control_points_new_map, control_points_old_map, impact_radii_new_map, impact_radii_old_map)
+        self.H_old.assign(fe.project(H_exp, self.WW))
+
+
     def update_map(self):
-        crack_increment_threshold = 5
-        new_tip_point = self.identify_crack_tip()
-        v1 = self.control_points[-1] - self.control_points[-2]
-        v2 = new_tip_point - self.control_points[-1]
-        v1 = v1 / np.linalg.norm(v1)
-        v2 = v2 / np.linalg.norm(v2)
-
-        print("new_tip_point is {}".format(new_tip_point))
-        print("v1 is {}".format(v1))
-        print("v2 is {}".format(v2))
-
-        print("control points are \n{}".format(self.control_points))
-        print("impact_radii are {}".format(self.impact_radii))
-
         d_int = fe.assemble(self.d_new * fe.dx)
         print("d_int {}".format(float(d_int)))
 
-        # assert np.dot(v1, v2) < np.sqrt(2)/2, "Crack propogration angle not good"
+        d_integral_interval_initial = 1
+        d_integral_interval = 30
 
-        # if np.linalg.norm(v2) > crack_increment_threshold:
-        #     self.compute_impact_radii(new_tip_point)
+        update_flag = False
+
+        while len(self.d_integrals) < len(self.control_points):
+            self.d_integrals.append(d_int)
+
+        if len(self.d_integrals) == 0:
+            if d_int > d_integral_interval_initial:
+                update_flag = True
+        else:
+            if d_int - self.d_integrals[-1] > d_integral_interval:
+                update_flag = True
+
+        if update_flag:
+            new_tip_point = self.identify_crack_tip()
+            v1 = self.control_points[-1] - self.control_points[-2]
+            v2 = new_tip_point - self.control_points[-1]
+            v1 = v1 / np.linalg.norm(v1)
+            v2 = v2 / np.linalg.norm(v2)
+
+            print("new_tip_point is {}".format(new_tip_point))
+            print("v1 is {}".format(v1))
+            print("v2 is {}".format(v2))
+            print("control points are \n{}".format(self.control_points))
+            print("impact_radii are {}".format(self.impact_radii))
+            assert np.dot(v1, v2) > np.sqrt(2)/2, "Crack propogration angle not good"
+            self.compute_impact_radii(new_tip_point)
+            self.interpolate_H()
+            self.d_integrals.append(d_int)
+        else:
+            print("Do not modify map")
+
+        print("d_integrals {}".format(self.d_integrals))
 
 
 def test(args):
