@@ -11,13 +11,45 @@ import ufl
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
-def ratio_function(ratio):
-    return ratio**2
+def ratio_function_ufl(ratio):
+    return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, 3./2.*ratio - 1./2.)
 
 
-def inverse_ratio_function(ratio):
-    return fe.sqrt(ratio)
+def inverse_ratio_function_ufl(ratio):
+    return fe.conditional(fe.lt(ratio, 1./4.), 2.*ratio, 2./3.*ratio + 1./3.)
 
+
+def ratio_function_normal(ratio):
+    if ratio < 1./2:
+        return 1./2.*ratio
+    else:
+        return 3./2.*ratio - 1./2.
+
+
+def inverse_ratio_function_normal(ratio):
+    if ratio < 1./4.:
+        return 2.*ratio
+    else:
+        return 2./3.*ratio + 1./3.
+
+
+
+
+# def ratio_function_ufl(ratio):
+#     return ratio
+
+
+# def inverse_ratio_function_ufl(ratio):
+#     return ratio
+
+
+# def ratio_function_normal(ratio):
+#     return ratio
+
+
+# def inverse_ratio_function_normal(ratio):
+#     return ratio
+    
 
 def distance_function_line_segement_ufl(P, A=[-1, 0], B=[1, 0]):     
     AB = [None, None]
@@ -87,7 +119,7 @@ def map_function_ufl(x_hat, control_points, impact_radii):
     x_hat = fe.variable(x_hat)
     df, rho = distance_function_segments_ufl(x_hat, control_points, impact_radii)
     grad_x_hat = fe.diff(df, x_hat)
-    delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function(df / rho) - df))
+    delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function_ufl(df / rho) - df))
     return delta_x_hat + x_hat
 
 
@@ -97,7 +129,7 @@ def inverse_map_function_ufl(x, control_points, impact_radii):
     x = fe.variable(x)
     df, rho = distance_function_segments_ufl(x, control_points, impact_radii)
     grad_x = fe.diff(df, x)
-    delta_x = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x * (rho * inverse_ratio_function(df / rho) - df))
+    delta_x = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x * (rho * inverse_ratio_function_ufl(df / rho) - df))
     return delta_x + x
 
 
@@ -184,7 +216,7 @@ def map_function_normal(x_hat, control_points, impact_radii):
     if df <= 0 or df >= rho:
         delta_x_hat = np.array([0., 0.])
     else:
-        delta_x_hat =  vec_dist / df * (rho * ratio_function(df / rho) - df)
+        delta_x_hat =  vec_dist / df * (rho * ratio_function_normal(df / rho) - df)
     return delta_x_hat + x_hat
 
 
@@ -196,7 +228,7 @@ def inverse_map_function_normal(x, control_points, impact_radii):
     if df <= 0 or df >= rho:
         delta_x = np.array([0., 0.])
     else:
-        delta_x =  vec_dist / df * (rho * inverse_ratio_function(df / rho) - df)
+        delta_x =  vec_dist / df * (rho * inverse_ratio_function_normal(df / rho) - df)
     return delta_x + x
 
 
@@ -213,13 +245,12 @@ class InterpolateExpression(fe.UserExpression):
     def eval(self, values, x_hat):
         x = inverse_map_function_normal(map_function_normal(x_hat, self.control_points, self.impact_radii), self.control_points, self.impact_radii)
         point = fe.Point(x)
-        values[0] = self.e(point)
+        # values[0] = self.e(point)
         # delta_x_hat = x - x_hat
-        # values[0] = delta_x_hat[0]
-        # values[1] = delta_x_hat[1] 
-
+        values = x - x_hat
+ 
     def value_shape(self):
-        return ()
+        return (2,)
 
 
 
@@ -255,9 +286,9 @@ def mfem():
     # int_exp = InterpolateExpression(u, control_points, impact_radii)
     # e = fe.interpolate(int_exp, U)
 
-    e = fe.Function(W)
+    e = fe.Function(U)
     int_exp = InterpolateExpression(e, control_points, impact_radii)
-    e = fe.project(int_exp, W)
+    e = fe.project(int_exp, U)
 
  
     vtkfile_u = fe.File('data/pvd/mfem/u.pvd')

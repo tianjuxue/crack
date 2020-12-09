@@ -1,5 +1,5 @@
 import fenics as fe
-
+import ufl
 
 # ---------------------------------------------------------------- 
 # History functions
@@ -13,9 +13,13 @@ def history(H_old, psi_new, psi_cr):
 # ---------------------------------------------------------------- 
 # Degradation functions
 
+# def g_d(d):
+#     m = 2
+#     degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
+#     return degrad 
+
 def g_d(d):
-    m = 2
-    degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
+    degrad = (1 - d)**2
     return degrad 
 
 
@@ -39,6 +43,22 @@ def psi_plus_linear_elasticity(epsilon, lamda, mu):
 
 def psi_minus_linear_elasticity(epsilon, lamda, mu):
     return 0
+
+
+
+# Model B
+# def psi_plus_linear_elasticity(epsilon, lamda, mu):
+#     kappa = lamda + 2. / 3. * mu
+#     tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
+#     return kappa / 2. * tr_epsilon_plus**2 + mu * fe.inner(fe.dev(epsilon), fe.dev(epsilon))
+
+
+# def psi_minus_linear_elasticity(epsilon, lamda, mu):
+#     kappa = lamda + 2. / 3. * mu
+#     tr_epsilon_minus = ufl.Min(fe.tr(epsilon), 0)
+#     return kappa / 2. * tr_epsilon_minus**2
+
+
 
 
 def psi_linear_elasticity(epsilon, lamda, mu):
