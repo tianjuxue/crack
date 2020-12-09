@@ -28,6 +28,8 @@ class PDE(object):
         self.staggered_tol = 1e-6 
         self.staggered_maxiter = 1000
         self.map_flag = False
+        self.delta_u_recorded = []
+        self.sigma_recorded = []
 
 
     def preparation(self):
@@ -61,11 +63,9 @@ class PDE(object):
         m_test = fe.TestFunctions(self.M)
         m_delta = fe.TrialFunctions(self.M)
         m_new = da.Function(self.M)
-        m_pre = da.Function(self.M)
 
         self.eta, self.zeta = m_test
         self.x_new, self.d_new = fe.split(m_new)
-        self.x_pre, self.d_pre = fe.split(m_pre)
 
         self.H_old = da.Function(self.WW)
         self.assign_initial_value_H()
@@ -87,20 +87,12 @@ class PDE(object):
         p = fe.NonlinearVariationalProblem(self.G, m_new, self.BC, dG)
         solver = fe.NonlinearVariationalSolver(p)
 
-
         for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
 
             print('\n')
             print('=================================================================================')
             print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
             print('=================================================================================')
-
-
-            # x_debug, d_debug = m_new.split()
-            # d_vector = np.array(d_debug.vector())
-            # x_vector = np.array(x_debug.vector())
-            # print("Before solve: Length {}, max element of d {}".format(len(d_vector), np.max(d_vector)))
-            # print("Before solve: Length {}, max element of u {}".format(len(x_vector), np.max(x_vector)))
 
             self.presLoad.t = disp
 
@@ -113,14 +105,8 @@ class PDE(object):
             solver.solve()
 
  
-            m_pre.assign(m_new)
-
-
-
 
             self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
-
-
 
 
             e.assign(da.interpolate(self.H_old, self.EE))
@@ -131,7 +117,6 @@ class PDE(object):
                 delta_x = self.x - self.x_hat
                 map_plot = fe.project(delta_x, self.MM)
 
-            print('=================================================================================')
 
             self.x_plot, self.d_plot = m_new.split()
             self.x_plot.rename("u", "u")
@@ -147,8 +132,17 @@ class PDE(object):
             vtkfile_u << self.x_plot
             vtkfile_d << self.d_plot
 
+            self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
+            self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
+            force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
+            print("Force upper {}".format(force_upper))
+            self.delta_u_recorded.append(disp)
+            self.sigma_recorded.append(force_upper)
+
             if self.map_flag:
                 self.update_map()
+
+            print('=================================================================================')
 
 
     def staggered_solve(self):
@@ -202,7 +196,7 @@ class PDE(object):
             iteration = 0
             err = 1.
 
-            # self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
+            self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
 
             while err > self.staggered_tol:
                 iteration += 1
@@ -227,9 +221,6 @@ class PDE(object):
                 x_old.assign(self.x_new)
                 d_old.assign(self.d_new)
 
-                self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
-
-
                 print('---------------------------------------------------------------------------------')
                 print('>> iteration. {}, error = {:.5}'.format(iteration, err))
                 print('---------------------------------------------------------------------------------')
@@ -243,6 +234,17 @@ class PDE(object):
                     vtkfile_u << self.x_new
                     vtkfile_d << self.d_new
                     break
+
+
+            self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
+            self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
+            force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
+            print("Force upper {}".format(force_upper))
+            self.delta_u_recorded.append(disp)
+            self.sigma_recorded.append(force_upper)
+
+            if force_upper < 0.8 and i > 10:
+                break
 
 
 class DoubleCircles(PDE):
@@ -361,21 +363,21 @@ class StripeFabric(PDE):
         self.case_name = "stripe_fabric"
         super(StripeFabric, self).__init__(args)
 
-        self.displacements = np.concatenate((np.linspace(0., 0.13, 11), np.linspace(0.13, 0.15, 101)))
-
+        self.displacements = np.concatenate((np.linspace(0., 0.15, 11), np.linspace(0.15, 0.4, 51)))
+ 
         # self.relaxation_parameters = np.concatenate((np.linspace(1, 1, 5), np.linspace(0.1, 0.1, len(self.displacements) - 5)))
         self.relaxation_parameters =  np.linspace(1, 1, len(self.displacements))
+
         self.psi_cr = 0.01
         self.l0 = 2 * self.mesh.hmin()
-
         self.build_lame_parameters()
 
 
     def build_lame_parameters(self):
         class MuExpression(da.UserExpression):
             def eval(self, values, x):
-                if (x[0] // 10) % 2 == 0:
-                    values[0] = 1e3
+                if (x[0] // 50) % 2 == 0:
+                    values[0] = 2*1e2
                 else:
                     values[0] = 1e3
             def value_shape(self):
@@ -396,7 +398,7 @@ class StripeFabric(PDE):
         class HistoryExpression(da.UserExpression):
             def eval(self, values, x):
                 if x[0] > 0 and x[0] < 5 and x[1] > height / 2 - l0 / 2 and x[1] < height / 2 + l0 / 2:
-                    values[0] = 1e3 * psi_cr * 0
+                    values[0] = 1e3 * psi_cr
                 else:
                     values[0] = 0
             def value_shape(self):
@@ -418,7 +420,7 @@ class StripeFabric(PDE):
 
         self.mesh = mshr.generate_mesh(plate - notch, 30)
 
-        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 50, 50, diagonal="crossed")
+        self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
  
         length = self.length
         height = self.height
@@ -450,7 +452,10 @@ class StripeFabric(PDE):
         self.left = Left()
         self.right = Right()
 
+
     def set_bcs_monolithic(self):
+        self.upper.mark(self.boundaries, 1)
+
         # self.presLoad = da.Expression("t", t=0.0, degree=1)
         # BC_u_lower = da.DirichletBC(self.M.sub(0).sub(1), da.Constant(0),  self.lower)
         # BC_u_upper = da.DirichletBC(self.M.sub(0).sub(1), self.presLoad,  self.upper)
@@ -465,11 +470,8 @@ class StripeFabric(PDE):
 
         self.BC = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right]         
  
-
-
  
     def build_weak_form_monolithic(self):
-
         self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
         self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
 
@@ -482,22 +484,21 @@ class StripeFabric(PDE):
 
         G_u = g_d(self.d_new) * fe.inner(sigma_plus, fe.grad(self.eta)) * fe.dx
 
-        # G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
+        G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
+            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
         # G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
         #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
-        g_c = 0.01
-        G_d = (self.psi_plus(strain(fe.grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
-            + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
-
-        # G_d += (self.d_new - self.d_pre) / 1e2 * self.zeta * fe.dx
+        # g_c = 0.01
+        # G_d = (self.psi_plus(strain(fe.grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
         self.G = G_u + G_d
 
 
     def set_bcs_staggered(self):
+        self.upper.mark(self.boundaries, 1)
         self.presLoad = da.Expression("t", t=0.0, degree=1)
         BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
         BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
@@ -507,14 +508,12 @@ class StripeFabric(PDE):
 
 
     def build_weak_form_staggered(self):
- 
         self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
         self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
 
         sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
 
- 
         self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
             + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
  
@@ -576,7 +575,7 @@ class HalfCrackSqaure(PDE):
         class HistoryExpression(da.UserExpression):
             def eval(self, values, x_hat):
                 x = map_function_normal(x_hat, control_points, impact_radii)  
-                if x[0] > 0 and x[0] < length / 2 and x[1] > height / 2 - l0 / 1 and x[1] < height / 2 + l0 / 1:
+                if x[0] > 0 and x[0] < length / 2 and x[1] > height / 2 - l0 and x[1] < height / 2 + l0:
                     values[0] = 1e3 * psi_cr
                 else:
                     values[0] = 0
@@ -897,6 +896,12 @@ def test(args):
     # pde_sf.monolithic_solve()
     pde_sf.staggered_solve()
 
+    plt.figure()
+    plt.plot(pde_sf.delta_u_recorded, pde_sf.sigma_recorded, linestyle='--', marker='o', color='red')
+    plt.tick_params(labelsize=14)
+    plt.xlabel("Vertical displacement of top side", fontsize=14)
+    plt.ylabel("Force on top side", fontsize=14)
+    plt.show()
 
 if __name__ == '__main__':
     args = arguments.args
