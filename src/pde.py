@@ -362,10 +362,11 @@ class StripeFabric(PDE):
     def __init__(self, args):
         self.case_name = "stripe_fabric"
         super(StripeFabric, self).__init__(args)
+        # self.displacements = np.concatenate((np.linspace(0., 0.15, 11), np.linspace(0.15, 0.4, 51)))
 
-        self.displacements = np.concatenate((np.linspace(0., 0.15, 11), np.linspace(0.15, 0.4, 51)))
- 
-        # self.relaxation_parameters = np.concatenate((np.linspace(1, 1, 5), np.linspace(0.1, 0.1, len(self.displacements) - 5)))
+
+        self.displacements = np.concatenate((np.linspace(0., 0.10, 11), np.linspace(0.10, 0.11, 21)))
+
         self.relaxation_parameters =  np.linspace(1, 1, len(self.displacements))
 
         self.psi_cr = 0.01
@@ -377,7 +378,7 @@ class StripeFabric(PDE):
         class MuExpression(da.UserExpression):
             def eval(self, values, x):
                 if (x[0] // 50) % 2 == 0:
-                    values[0] = 2*1e2
+                    values[0] = 1e3
                 else:
                     values[0] = 1e3
             def value_shape(self):
@@ -398,7 +399,7 @@ class StripeFabric(PDE):
         class HistoryExpression(da.UserExpression):
             def eval(self, values, x):
                 if x[0] > 0 and x[0] < 5 and x[1] > height / 2 - l0 / 2 and x[1] < height / 2 + l0 / 2:
-                    values[0] = 1e3 * psi_cr
+                    values[0] = 1e3 * psi_cr * 0
                 else:
                     values[0] = 0
             def value_shape(self):
@@ -411,16 +412,16 @@ class StripeFabric(PDE):
         self.length = 100
         self.height = 100
 
-
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
         
-        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1), fe.Point(0, self.height / 2 - 1), fe.Point(6, self.height / 2)])
-        # notch = mshr.Circle(fe.Point(0, self.height / 2), 5)
-        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1), fe.Point(0, self.height / 2 - 1), fe.Point(6, self.height / 2)])
+        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        # notch = mshr.Polygon([fe.Point(self.length / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 - 1e-10), \
+        #                       fe.Point(self.length * 3 / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 + 1e-10)])
 
-        self.mesh = mshr.generate_mesh(plate - notch, 30)
+        self.mesh = mshr.generate_mesh(plate - notch, 100)
 
-        self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
+        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
  
         length = self.length
         height = self.height
@@ -499,11 +500,20 @@ class StripeFabric(PDE):
 
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
-        self.presLoad = da.Expression("t", t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
-        BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
-        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
+
+        # self.presLoad = da.Expression("t", t=0.0, degree=1)
+        # BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
+        # BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
+        # BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
+        # self.BC_d = []
+
+        self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
+        BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
+        BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
+        BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
+        BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
+        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
         self.BC_d = []
 
 
@@ -517,9 +527,12 @@ class StripeFabric(PDE):
         self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
             + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
  
-        self.G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
+        self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
+
+        # self.G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
         # g_c = 0.1
         # self.G_d = (self.psi_plus(strain(fe.grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
@@ -893,8 +906,8 @@ def test(args):
     # pde_hc.monolithic_solve()
  
     pde_sf = StripeFabric(args)
-    # pde_sf.monolithic_solve()
-    pde_sf.staggered_solve()
+    pde_sf.monolithic_solve()
+    # pde_sf.staggered_solve()
 
     plt.figure()
     plt.plot(pde_sf.delta_u_recorded, pde_sf.sigma_recorded, linestyle='--', marker='o', color='red')

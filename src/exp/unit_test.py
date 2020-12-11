@@ -1,5 +1,4 @@
 import fenics as fe
-import dolfin_adjoint as da
 import sys
 import time
 import numpy as np
@@ -89,12 +88,12 @@ class PDE(object):
 
         m_test = fe.TestFunctions(self.M)
         m_delta = fe.TrialFunctions(self.M)
-        m_new = da.Function(self.M)
+        m_new = fe.Function(self.M)
 
         self.eta, self.zeta = m_test
         self.x_new, self.d_new = fe.split(m_new)
 
-        self.H_old = da.Function(self.WW)
+        self.H_old = fe.Function(self.WW)
 
         vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
         vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
@@ -150,13 +149,13 @@ class PDE(object):
         del_x = fe.TrialFunction(self.U)
         del_d = fe.TrialFunction(self.W)
 
-        self.x_new = da.Function(self.U)
-        self.d_new = da.Function(self.W)
+        self.x_new = fe.Function(self.U)
+        self.d_new = fe.Function(self.W)
 
-        x_old = da.Function(self.U)
-        d_old = da.Function(self.W) 
+        x_old = fe.Function(self.U)
+        d_old = fe.Function(self.W) 
 
-        self.H_old = da.Function(self.WW)
+        self.H_old = fe.Function(self.WW)
 
         self.build_weak_form_staggered()
         J_u = fe.derivative(self.G_u, self.x_new, del_x)
@@ -271,10 +270,10 @@ class TestCase(PDE):
 
     def set_bcs_monolithic(self):
         self.upper.mark(self.boundaries, 1)
-        self.presLoad = da.Expression("t", t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.M.sub(0).sub(1), da.Constant(0),  self.lower)
-        BC_u_upper = da.DirichletBC(self.M.sub(0).sub(1), self.presLoad,  self.upper)
-        BC_u_corner = da.DirichletBC(self.M.sub(0).sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        self.presLoad = fe.Expression("t", t=0.0, degree=1)
+        BC_u_lower = fe.DirichletBC(self.M.sub(0).sub(1), fe.Constant(0),  self.lower)
+        BC_u_upper = fe.DirichletBC(self.M.sub(0).sub(1), self.presLoad,  self.upper)
+        BC_u_corner = fe.DirichletBC(self.M.sub(0).sub(0), fe.Constant(0.0), self.corner, method='pointwise')
         self.BC = [BC_u_lower, BC_u_upper, BC_u_corner]
 
  
@@ -282,7 +281,7 @@ class TestCase(PDE):
         self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
         self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
      
-        G_u = g_d(self.d_new) * fe.inner(self.sigma, fe.grad(self.eta)) * fe.dx
+        G_u = g_d(self.d_new) * fe.inner(self.sigma, strain(fe.grad(self.eta))) * fe.dx
 
         G_d = (history(self.H_old, self.psi(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
@@ -296,10 +295,10 @@ class TestCase(PDE):
 
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
-        self.presLoad = da.Expression("t", t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
-        BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        self.presLoad = fe.Expression("t", t=0.0, degree=1)
+        BC_u_lower = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.lower)
+        BC_u_upper = fe.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
+        BC_u_corner = fe.DirichletBC(self.U.sub(0), fe.Constant(0.0), self.corner, method='pointwise')
         self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
         self.BC_d = []
 
