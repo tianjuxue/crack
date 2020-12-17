@@ -1,3 +1,5 @@
+'''Experiment with maps
+'''
 import fenics as fe
 import sys
 import time

@@ -21,12 +21,12 @@ np.random.seed(1)
 
 
 def load_data():
-    x1 = loadmat('data/mat/calib.mat')
-    x2 = loadmat('data/mat/tippoint.mat')
+    x1 = loadmat('data/mat/crack_tracking/calib.mat')
+    x2 = loadmat('data/mat/crack_tracking/tippoint.mat')
     for key, value in x2.items():
         print(key)
 
-    path_tracer = 'data/mat/tracer_track.mat'
+    path_tracer = 'data/mat/crack_tracking/tracer_track.mat'
     arrays = {}
     f = h5py.File(path_tracer)
     for k, v in f.items():

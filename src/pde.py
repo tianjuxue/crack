@@ -15,7 +15,7 @@ from .constitutive import *
 from .mfem import distance_function_segments_ufl, distance_function_segments_normal, map_function_normal, inverse_map_function_normal, map_function_ufl
 
 
-fe.parameters["form_compiler"]["quadrature_degree"] = 4
+# fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
 class PDE(object):
@@ -30,6 +30,7 @@ class PDE(object):
         self.map_flag = False
         self.delta_u_recorded = []
         self.sigma_recorded = []
+        self.psi_cr = 0.01
 
 
     def preparation(self):
@@ -40,6 +41,7 @@ class PDE(object):
             except Exception as e:
                 print('Failed to delete {}, reason: {}' % (f, e))
 
+
     def set_boundaries(self):
         self.boundaries = fe.MeshFunction("size_t", self.mesh, self.mesh.topology().dim() - 1)
         self.boundaries.set_all(0)
@@ -47,10 +49,15 @@ class PDE(object):
         self.I = fe.Identity(self.mesh.topology().dim())
         self.normal = fe.FacetNormal(self.mesh)
 
+
     def assign_initial_value_H(self):
         pass
 
- 
+
+    def update_history(self):
+        return 0
+
+
     def monolithic_solve(self):
         self.U = fe.VectorElement('CG', self.mesh.ufl_cell(), 1)  
         self.W = fe.FiniteElement("CG", self.mesh.ufl_cell(), 1)
@@ -105,7 +112,6 @@ class PDE(object):
             solver.solve()
 
  
-
             self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
 
 
@@ -214,15 +220,25 @@ class PDE(object):
                 # print(' ')
                 # print('[Computing residuals...]')
 
-                err_u = fe.errornorm(self.x_new, x_old, norm_type='l2', mesh=None)
-                err_d = fe.errornorm(self.d_new, d_old, norm_type='l2', mesh=None)
-                err = max(err_u, err_d)
+
+                # FEniCS errornorm function seems to have weird behaviors
+                # The following sometimes produces nonzero results
+                # print(fe.errornorm(self.d_new, self.d_new, norm_type='l2'))
+                # We use an error measure similar in https://doi.org/10.1007/s10704-019-00372-y
+
+                np_x_new = np.asarray(self.x_new.vector())
+                np_d_new = np.asarray(self.d_new.vector())
+                np_x_old = np.asarray(x_old.vector())
+                np_d_old = np.asarray(d_old.vector())
+                err_x = np.linalg.norm(np_x_new - np_x_old) / np.sqrt(len(np_x_new))
+                err_d = np.linalg.norm(np_d_new - np_d_old) / np.sqrt(len(np_d_new))
+                err = max(err_x, err_d)
 
                 x_old.assign(self.x_new)
                 d_old.assign(self.d_new)
 
                 print('---------------------------------------------------------------------------------')
-                print('>> iteration. {}, error = {:.5}'.format(iteration, err))
+                print('>> iteration. {}, err_u = {:.5}, err_d = {:.5}, error = {:.5}'.format(iteration, err_x, err_d, err))
                 print('---------------------------------------------------------------------------------')
 
                 if err < self.staggered_tol or iteration >= self.staggered_maxiter:
@@ -473,8 +489,8 @@ class StripeFabric(PDE):
  
  
     def build_weak_form_monolithic(self):
-        self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
 
         sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
@@ -518,8 +534,8 @@ class StripeFabric(PDE):
 
 
     def build_weak_form_staggered(self):
-        self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
 
         sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
@@ -657,8 +673,8 @@ class HalfCrackSqaure(PDE):
 
         self.mfem_grad = mfem_grad_wrapper(fe.grad)
 
-        self.psi_plus = partial(psi_plus_linear_elasticity, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity, lamda=self.lamda, mu=self.mu)
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
 
         sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
@@ -915,6 +931,7 @@ def test(args):
     plt.xlabel("Vertical displacement of top side", fontsize=14)
     plt.ylabel("Force on top side", fontsize=14)
     plt.show()
+
 
 if __name__ == '__main__':
     args = arguments.args

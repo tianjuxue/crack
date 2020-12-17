@@ -1,3 +1,5 @@
+'''A minimum working example using both staggered monolithic solvers
+'''
 import fenics as fe
 import sys
 import time

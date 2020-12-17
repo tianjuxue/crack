@@ -19,7 +19,7 @@ def history(H_old, psi_new, psi_cr):
 #     return degrad 
 
 def g_d(d):
-    degrad = (1 - d)**2
+    degrad = (1 - d)**2 + 1e-10;
     return degrad 
 
 
@@ -37,32 +37,30 @@ def strain(grad_u):
     return 0.5*(grad_u + grad_u.T)
 
 
-def psi_plus_linear_elasticity(epsilon, lamda, mu):
+def psi_linear_elasticity(epsilon, lamda, mu):
+    return lamda / 2 * fe.tr(epsilon)**2 + mu * fe.inner(epsilon, epsilon)
+
+
+# Model A
+def psi_plus_linear_elasticity_model_A(epsilon, lamda, mu):
     return psi_linear_elasticity(epsilon, lamda, mu)
 
 
-def psi_minus_linear_elasticity(epsilon, lamda, mu):
+def psi_minus_linear_elasticity_model_A(epsilon, lamda, mu):
     return 0
 
 
-
 # Model B
-# def psi_plus_linear_elasticity(epsilon, lamda, mu):
-#     kappa = lamda + 2. / 3. * mu
-#     tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
-#     return kappa / 2. * tr_epsilon_plus**2 + mu * fe.inner(fe.dev(epsilon), fe.dev(epsilon))
+def psi_plus_linear_elasticity_model_B(epsilon, lamda, mu):
+    kappa = lamda + 2. / 3. * mu
+    tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
+    return kappa / 2. * tr_epsilon_plus**2 + mu * fe.inner(fe.dev(epsilon), fe.dev(epsilon))
 
 
-# def psi_minus_linear_elasticity(epsilon, lamda, mu):
-#     kappa = lamda + 2. / 3. * mu
-#     tr_epsilon_minus = ufl.Min(fe.tr(epsilon), 0)
-#     return kappa / 2. * tr_epsilon_minus**2
-
-
-
-
-def psi_linear_elasticity(epsilon, lamda, mu):
-    return lamda / 2 * fe.tr(epsilon)**2 + mu * fe.inner(epsilon, epsilon)
+def psi_minus_linear_elasticity_model_B(epsilon, lamda, mu):
+    kappa = lamda + 2. / 3. * mu
+    tr_epsilon_minus = ufl.Min(fe.tr(epsilon), 0)
+    return kappa / 2. * tr_epsilon_minus**2
 
 
 def cauchy_stress_plus(epsilon, psi_plus):
