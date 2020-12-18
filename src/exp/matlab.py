@@ -82,15 +82,9 @@ class InternalCrack(PDE):
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
 
-
         self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
         BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
         BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
- 
-        # self.presLoad = fe.Expression("t", t=0.0, degree=1)
-        # BC_u_lower = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.lower)
-        # BC_u_upper = fe.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        # BC_u_corner = fe.DirichletBC(self.U.sub(0), fe.Constant(0.0), self.corner, method='pointwise')
 
         BC_d_middle = fe.DirichletBC(self.W, fe.Constant(1.), self.middle, method='pointwise')
 

@@ -25,8 +25,8 @@ class PDE(object):
         self.build_mesh()
         self.set_boundaries()
         self.l0 = 2 * self.mesh.hmin()
-        self.staggered_tol = 1e-6 
-        self.staggered_maxiter = 1000
+        self.staggered_tol = 1e-10 
+        self.staggered_maxiter = 10000
         self.map_flag = False
         self.delta_u_recorded = []
         self.sigma_recorded = []
@@ -194,11 +194,15 @@ class PDE(object):
             self.presLoad.t = disp
 
             newton_prm = solver_u.parameters['newton_solver']
-            newton_prm['maximum_iterations'] = 1000
-            newton_prm['linear_solver'] = 'mumps'   
+            newton_prm['maximum_iterations'] = 1000 
             newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
- 
+
+            newton_prm = solver_d.parameters['newton_solver']
+            newton_prm['maximum_iterations'] = 1000 
+            newton_prm['absolute_tolerance'] = 1e-4
+            newton_prm['relaxation_parameter'] = rp
+            
             iteration = 0
             err = 1.
 
@@ -220,11 +224,11 @@ class PDE(object):
                 # print(' ')
                 # print('[Computing residuals...]')
 
-
-                # FEniCS errornorm function seems to have weird behaviors
-                # The following sometimes produces nonzero results
+                # dolfin (2019.1.0) errornorm function has severe bugs not behave as expected
+                # The bug seems to be fixed in later versions
+                # The following sometimes produces nonzero results in dolfin (2019.1.0)
                 # print(fe.errornorm(self.d_new, self.d_new, norm_type='l2'))
-                # We use an error measure similar in https://doi.org/10.1007/s10704-019-00372-y
+                # We use another error measure similar in https://doi.org/10.1007/s10704-019-00372-y
 
                 np_x_new = np.asarray(self.x_new.vector())
                 np_d_new = np.asarray(self.d_new.vector())
@@ -378,10 +382,9 @@ class StripeFabric(PDE):
     def __init__(self, args):
         self.case_name = "stripe_fabric"
         super(StripeFabric, self).__init__(args)
-        # self.displacements = np.concatenate((np.linspace(0., 0.15, 11), np.linspace(0.15, 0.4, 51)))
-
-
-        self.displacements = np.concatenate((np.linspace(0., 0.10, 11), np.linspace(0.10, 0.11, 21)))
+ 
+        self.displacements = 1e-4*np.linspace(0, 1, 11)
+        # self.displacements = np.concatenate((np.linspace(0., 0.10, 11), np.linspace(0.10, 0.11, 21)))
 
         self.relaxation_parameters =  np.linspace(1, 1, len(self.displacements))
 
@@ -402,6 +405,12 @@ class StripeFabric(PDE):
 
         self.mu = MuExpression()
         self.nu = 0.4
+        self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
+
+
+        self.E = 210e3
+        self.nu = 0.3
+        self.mu = self.E / (2 * (1 + self.nu))
         self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
 
 
@@ -517,20 +526,20 @@ class StripeFabric(PDE):
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
 
-        # self.presLoad = da.Expression("t", t=0.0, degree=1)
-        # BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
-        # BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        # BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
-        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
-        # self.BC_d = []
-
-        self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
-        BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
-        BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
-        BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
-        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
+        self.presLoad = da.Expression("t", t=0.0, degree=1)
+        BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
+        BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
+        BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
         self.BC_d = []
+
+        # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
+        # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
+        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
+        # BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
+        # BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
+        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
+        # self.BC_d = []
 
 
     def build_weak_form_staggered(self):
@@ -543,16 +552,16 @@ class StripeFabric(PDE):
         self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
             + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
  
-        self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
+        # self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
         # self.G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
         #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
-        # g_c = 0.1
-        # self.G_d = (self.psi_plus(strain(fe.grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
+        g_c = 2.7e-6;
+        self.G_d = (self.psi_plus(strain(fe.grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
+            + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
 
     def update_history(self):
@@ -922,8 +931,8 @@ def test(args):
     # pde_hc.monolithic_solve()
  
     pde_sf = StripeFabric(args)
-    pde_sf.monolithic_solve()
-    # pde_sf.staggered_solve()
+    # pde_sf.monolithic_solve()
+    pde_sf.staggered_solve()
 
     plt.figure()
     plt.plot(pde_sf.delta_u_recorded, pde_sf.sigma_recorded, linestyle='--', marker='o', color='red')
