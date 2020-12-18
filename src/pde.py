@@ -105,8 +105,7 @@ class PDE(object):
 
             newton_prm = solver.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 1000
-            newton_prm['linear_solver'] = 'mumps'   
-            newton_prm['absolute_tolerance'] = 1e-4
+            # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
 
             solver.solve()
@@ -195,14 +194,14 @@ class PDE(object):
 
             newton_prm = solver_u.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 1000 
-            newton_prm['absolute_tolerance'] = 1e-4
+            # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
 
             newton_prm = solver_d.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 1000 
-            newton_prm['absolute_tolerance'] = 1e-4
+            # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
-            
+
             iteration = 0
             err = 1.
 
