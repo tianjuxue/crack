@@ -56,10 +56,6 @@ class PDE(object):
         self.normal = fe.FacetNormal(self.mesh)
 
 
-    def assign_initial_value_H(self):
-        pass
-
-
     def update_history(self):
         return 0
 
@@ -69,7 +65,7 @@ class PDE(object):
         self.W = fe.FiniteElement("CG", self.mesh.ufl_cell(), 1)
         self.M = fe.FunctionSpace(self.mesh, self.U * self.W)
 
-        self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
+        self.WW = fe.FunctionSpace(self.mesh, 'DG', 0)
         self.EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
         self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
 
@@ -77,13 +73,14 @@ class PDE(object):
         m_delta = fe.TrialFunctions(self.M)
         m_new = da.Function(self.M)
         m_old = da.Function(self.M) 
+        m_pre = da.Function(self.M) 
 
         self.eta, self.zeta = m_test
         self.x_new, self.d_new = fe.split(m_new) # fe.split(m_new) is used in weak form, different from m_new.split() 
+        self.x_pre, self.d_pre = fe.split(m_pre)
 
         self.H_old = da.Function(self.WW)
         self.H_new = da.Function(self.WW)
-        self.assign_initial_value_H()
 
         e = da.Function(self.EE, name="e")
         map_plot = da.Function(self.MM, name="m")
@@ -107,6 +104,8 @@ class PDE(object):
             print('=================================================================================')
             print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
             print('=================================================================================')
+
+            m_pre.assign(m_new)
 
             self.presLoad.t = disp
 
@@ -151,11 +150,12 @@ class PDE(object):
 
             if self.map_flag:
                 delta_x = self.x - self.x_hat
-                map_plot = fe.project(delta_x, self.MM)
+                map_plot.assign(fe.project(delta_x, self.MM))
 
 
-            if self.map_flag:
-                self.update_map()
+            # if self.map_flag:
+            #     self.update_map()
+
 
             e.assign(da.interpolate(self.H_old, self.EE))
             # e.assign(da.project(self.psi_plus(strain(fe.grad(self.x_new))), self.EE))
@@ -185,8 +185,10 @@ class PDE(object):
     def staggered_solve(self):
         self.U = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
         self.W = fe.FunctionSpace(self.mesh, 'CG', 1) 
+
         self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
-        
+        self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
+
         self.eta = fe.TestFunction(self.U)
         self.zeta = fe.TestFunction(self.W)
 
@@ -195,12 +197,14 @@ class PDE(object):
 
         self.x_new = da.Function(self.U, name="u")
         self.d_new = da.Function(self.W, name="d")
+        self.d_pre = da.Function(self.W)
 
         x_old = da.Function(self.U)
         d_old = da.Function(self.W) 
 
         self.H_old = da.Function(self.WW)
-        self.assign_initial_value_H()
+
+        map_plot = da.Function(self.MM, name="m")
 
         self.build_weak_form_staggered()
         J_u = fe.derivative(self.G_u, self.x_new, del_x)
@@ -212,6 +216,9 @@ class PDE(object):
         solver_u = fe.NonlinearVariationalSolver(p_u)
         solver_d  = fe.NonlinearVariationalSolver(p_d)
 
+        file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
+        file_results.parameters["functions_share_mesh"] = True
+
         vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
         vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
 
@@ -221,6 +228,8 @@ class PDE(object):
             print('=================================================================================')
             print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
             print('=================================================================================')
+
+            self.d_pre.assign(self.d_new)
 
             self.presLoad.t = disp
 
@@ -277,6 +286,14 @@ class PDE(object):
                     print('\n')
                     break
 
+            if self.map_flag:
+                delta_x = self.x - self.x_hat
+                map_plot.assign(fe.project(delta_x, self.MM))
+
+            file_results.write(self.x_new, i)
+            file_results.write(self.d_new, i)
+            file_results.write(map_plot, i)
+
             vtkfile_u << self.x_new
             vtkfile_d << self.d_new
 
@@ -287,7 +304,7 @@ class PDE(object):
             self.delta_u_recorded.append(disp)
             self.sigma_recorded.append(force_upper)
 
-            if force_upper < 0.8 and i > 10:
+            if force_upper < 0.5 and i > 10:
                 break
 
 
@@ -407,8 +424,8 @@ class StripeFabric(PDE):
         self.case_name = "stripe_fabric"
         super(StripeFabric, self).__init__(args)
  
-        self.displacements = np.linspace(0, 0.3, 11)
-        # self.displacements = np.concatenate((np.linspace(0., 0.2, 11), np.linspace(0.2, 0.2, 21)))
+        self.displacements = np.linspace(0.15, 0.15, 501)
+        # self.displacements = np.concatenate((np.linspace(0.15, 0.15, 51), np.linspace(0.2, 0.2, 21)))
 
         self.relaxation_parameters =  np.linspace(1, 1, len(self.displacements))
 
@@ -421,7 +438,7 @@ class StripeFabric(PDE):
         class MuExpression(da.UserExpression):
             def eval(self, values, x):
                 if (x[0] // 50) % 2 == 0:
-                    values[0] = 2*1e2
+                    values[0] = 10*1e2
                 else:
                     values[0] = 10*1e2
             def value_shape(self):
@@ -432,23 +449,6 @@ class StripeFabric(PDE):
         self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
 
 
-    def assign_initial_value_H(self):
-        print("assigning initial value of H_old")
-        length = self.length
-        height = self.height
-        l0 = self.mesh.hmin()
-        psi_cr = self.psi_cr
-
-        class HistoryExpression(da.UserExpression):
-            def eval(self, values, x):
-                if x[0] > 0 and x[0] < 5 and x[1] > height / 2 - l0 / 2 and x[1] < height / 2 + l0 / 2:
-                    values[0] = 1e3 * psi_cr * 0
-                else:
-                    values[0] = 0
-            def value_shape(self):
-                return ()
-
-        self.H_old.assign(fe.interpolate(HistoryExpression(), self.WW))
 
 
     def build_mesh(self):
@@ -457,12 +457,12 @@ class StripeFabric(PDE):
 
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
         notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1), fe.Point(0, self.height / 2 - 1), fe.Point(6, self.height / 2)])
-        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
         # notch = mshr.Polygon([fe.Point(self.length / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 - 1e-10), \
         #                       fe.Point(self.length * 3 / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 + 1e-10)])
         self.mesh = mshr.generate_mesh(plate - notch, 50)
 
-        self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
+        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
  
         length = self.length
         height = self.height
@@ -525,11 +525,8 @@ class StripeFabric(PDE):
         sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
 
-        # G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
-        #     + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
-     
-
-        G_u = g_d(self.d_new) * fe.inner(sigma_plus, fe.grad(self.eta)) * fe.dx
+        G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(fe.grad(self.eta))) \
+            + fe.inner(sigma_minus, strain(fe.grad(self.eta)))) * fe.dx
 
         G_d = (self.H_new * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
@@ -554,7 +551,7 @@ class StripeFabric(PDE):
         BC_d_notch = fe.DirichletBC(self.W, fe.Constant(1.), self.notch, method='pointwise')
 
         self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
-        self.BC_d = [BC_d_notch]
+        self.BC_d = []
 
         # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
         # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
@@ -587,6 +584,9 @@ class StripeFabric(PDE):
         #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
 
+        self.G_d += 1 * (self.d_new - self.d_pre) * self.zeta * fe.dx
+
+
     def update_history(self):
         psi_new = self.psi_plus(strain(fe.grad(self.x_new)))  
         return psi_new
@@ -605,12 +605,13 @@ class HalfCrackSqaure(PDE):
     def __init__(self, args):
         self.case_name = "half_crack_square"
         super(HalfCrackSqaure, self).__init__(args)
-        # self.displacements = np.linspace(0, 0.2, 101)
 
-        self.displacements = np.linspace(0.08, 0.2, 61)
-        # self.displacements = np.linspace(0.08, 0.08, 1)
+        # self.displacements = np.concatenate((np.linspace(0, 0.05, 3), np.linspace(0.06, 0.15, 10)))
 
+        self.displacements = np.linspace(0., 0.15, 51)
+ 
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
+
         self.psi_cr = 0.01
 
         self.mu = 1e3
@@ -624,40 +625,26 @@ class HalfCrackSqaure(PDE):
         self.finish_flag = False
         self.map_flag = True
 
-
-    def assign_initial_value_H(self):
-        print("assigning initial value of H_old")
-        length = self.length
-        height = self.height
-        l0 = 2 * self.mesh.hmin()
-        psi_cr = self.psi_cr
-        control_points = self.control_points
-        impact_radii = self.impact_radii
-        class HistoryExpression(da.UserExpression):
-            def eval(self, values, x_hat):
-                x = map_function_normal(x_hat, control_points, impact_radii)  
-                if x[0] > 0 and x[0] < length / 2 and x[1] > height / 2 - l0 and x[1] < height / 2 + l0:
-                    values[0] = 1e3 * psi_cr
-                else:
-                    values[0] = 0
-            def value_shape(self):
-                return ()
-
-        # self.H_old.assign(da.project(HistoryExpression(), self.WW))
-        self.H_old.assign(fe.interpolate(HistoryExpression(), self.WW))
+        # self.l0 /= 2
 
 
     def build_mesh(self):
         self.length = 100
         self.height = 100
+        self.notch_length = 6
 
-        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 50, 50)
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
-        self.mesh = mshr.generate_mesh(plate, 50)
+        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1), fe.Point(0, self.height / 2 - 1), fe.Point(self.notch_length, self.height / 2)])
+        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        # notch = mshr.Polygon([fe.Point(self.length / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 - 1e-10), \
+        #                       fe.Point(self.length * 3 / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 + 1e-10)])
+        self.mesh = mshr.generate_mesh(plate - notch, 50)
+
+        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
+ 
 
         # Add dolfin-adjoint dependency
         self.mesh  = create_overloaded_object(self.mesh)
-
 
         length = self.length
         height = self.height
@@ -674,16 +661,31 @@ class HalfCrackSqaure(PDE):
             def inside(self, x, on_boundary):                    
                 return fe.near(x[0], 0) and fe.near(x[1], 0)
 
+        class Notch(fe.SubDomain):
+            def inside(self, x, on_boundary):
+                return  fe.near(x[1], height / 2) and x[0] < length / 2
+
+
+        # class Notch(fe.SubDomain):
+        #     def inside(self, x, on_boundary):
+        #         return  x[1] < height / 2 +  height / 40 and x[1] > height / 2 -  height / 40  and x[0] < length / 2
+
+
         self.lower = Lower()
         self.upper = Upper()
         self.corner = Corner()
+        self.notch = Notch()
 
 
     def set_bcs_monolithic(self):
+        self.upper.mark(self.boundaries, 1)
+
         self.presLoad = da.Expression("t", t=0.0, degree=1)
         BC_u_lower = da.DirichletBC(self.M.sub(0).sub(1), da.Constant(0),  self.lower)
         BC_u_upper = da.DirichletBC(self.M.sub(0).sub(1), self.presLoad,  self.upper)
         BC_u_corner = da.DirichletBC(self.M.sub(0).sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        BC_d_notch = fe.DirichletBC(self.M.sub(1), da.Constant(1.), self.notch, method='pointwise')
+
         self.BC = [BC_u_lower, BC_u_upper, BC_u_corner]
         
         # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
@@ -693,7 +695,6 @@ class HalfCrackSqaure(PDE):
 
 
     def build_weak_form_monolithic(self):
-
         self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
         self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii)  
         self.grad_gamma = fe.diff(self.x, self.x_hat)
@@ -713,15 +714,80 @@ class HalfCrackSqaure(PDE):
 
         G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
             + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
-        G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
+
+        G_d = (self.H_new * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
+        G_d += 0.5 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
+
         self.G = G_u + G_d
+
+
+
+
+
+    def set_bcs_staggered(self):
+        self.upper.mark(self.boundaries, 1)
+
+        self.presLoad = da.Expression("t", t=0.0, degree=1)
+        BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
+        BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
+        BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
+        BC_d_notch = fe.DirichletBC(self.W, fe.Constant(1.), self.notch, method='pointwise')
+
+        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
+        self.BC_d = []
+
+
+    def build_weak_form_staggered(self):
+        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
+        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii)  
+        self.grad_gamma = fe.diff(self.x, self.x_hat)
+
+        def mfem_grad_wrapper(grad):
+            def mfem_grad(u):
+                return fe.dot(grad(u), fe.inv(self.grad_gamma))
+            return mfem_grad
+
+        self.mfem_grad = mfem_grad_wrapper(fe.grad)
+
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+
+        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
+        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
+
+        self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
+            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
+ 
+
+        # self.G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
+
+        g_c = 0.01
+        self.G_d = (self.psi_plus(strain(self.mfem_grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
+            + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
+
+
+        self.G_d += 0.1 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
+
+
 
 
     def update_history(self):
         psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
         return psi_new
+
+
+    def initialize_control_points_and_impact_radii(self):
+        # self.control_points = []
+        # self.impact_radii = []
+        # control_points = np.asarray([[self.length/2, self.height/2]])
+        # for new_tip_point in control_points:
+        #     self.compute_impact_radii(new_tip_point)
+
+        self.control_points = np.asarray([[self.length/2, self.height/2], [self.length, self.height/2]])
+        self.impact_radii = np.array([self.height/4, self.height/4])
 
 
     def compute_impact_radius_tip_point(self, P, direct_vec=None):
@@ -840,15 +906,6 @@ class HalfCrackSqaure(PDE):
         return new_tip_point
 
 
-    def initialize_control_points_and_impact_radii(self):
-        self.control_points = []
-        self.impact_radii = []
-        control_points = np.asarray([[0., self.height/2], [20, self.height/2], [self.length/2 - 1, self.height/2], [self.length/2, self.height/2]])
-        # control_points = np.asarray([[0., 50], [50, 50], [80, 80], [90, 90], [100, 100]])
-        for new_tip_point in control_points:
-            self.compute_impact_radii(new_tip_point)
-
-
     def interpolate_H(self):
         control_points_new_map = self.control_points
         control_points_old_map = self.control_points[:-1]
@@ -950,15 +1007,16 @@ def test(args):
     # pde_dc.monolithic_solve()
     # pde_dc.staggered_solve()
 
-    # pde_hc = HalfCrackSqaure(args)
+    pde_hc = HalfCrackSqaure(args)
     # pde_hc.monolithic_solve()
+    pde_hc.staggered_solve()
  
-    pde_sf = StripeFabric(args)
+    # pde_sf = StripeFabric(args)
     # pde_sf.monolithic_solve()
-    pde_sf.staggered_solve()
+    # pde_sf.staggered_solve()
 
     plt.figure()
-    plt.plot(pde_sf.delta_u_recorded, pde_sf.sigma_recorded, linestyle='--', marker='o', color='red')
+    plt.plot(pde_hc.delta_u_recorded, pde_hc.sigma_recorded, linestyle='--', marker='o', color='red')
     plt.tick_params(labelsize=14)
     plt.xlabel("Vertical displacement of top side", fontsize=14)
     plt.ylabel("Force on top side", fontsize=14)

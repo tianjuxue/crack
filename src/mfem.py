@@ -11,27 +11,43 @@ import ufl
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
+# def ratio_function_ufl(ratio):
+#     return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, 3./2.*ratio - 1./2.)
+
+
+# def inverse_ratio_function_ufl(ratio):
+#     return fe.conditional(fe.lt(ratio, 1./4.), 2.*ratio, 2./3.*ratio + 1./3.)
+
+
+# def ratio_function_normal(ratio):
+#     if ratio < 1./2:
+#         return 1./2.*ratio
+#     else:
+#         return 3./2.*ratio - 1./2.
+
+
+# def inverse_ratio_function_normal(ratio):
+#     if ratio < 1./4.:
+#         return 2.*ratio
+#     else:
+#         return 2./3.*ratio + 1./3.
+
+
+
 def ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, 3./2.*ratio - 1./2.)
+    return ratio**1.5
 
 
 def inverse_ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, 1./4.), 2.*ratio, 2./3.*ratio + 1./3.)
+    return ratio**(1/1.5)
 
 
 def ratio_function_normal(ratio):
-    if ratio < 1./2:
-        return 1./2.*ratio
-    else:
-        return 3./2.*ratio - 1./2.
+    return ratio**(1.5)
 
 
 def inverse_ratio_function_normal(ratio):
-    if ratio < 1./4.:
-        return 2.*ratio
-    else:
-        return 2./3.*ratio + 1./3.
-
+    return ratio**(1/1.5)
 
 
 
@@ -50,6 +66,7 @@ def inverse_ratio_function_normal(ratio):
 # def inverse_ratio_function_normal(ratio):
 #     return ratio
     
+
 
 def distance_function_line_segement_ufl(P, A=[-1, 0], B=[1, 0]):     
     AB = [None, None]
