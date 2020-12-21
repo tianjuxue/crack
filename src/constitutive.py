@@ -1,9 +1,9 @@
 import fenics as fe
+import numpy as np
 import ufl
 
 # ---------------------------------------------------------------- 
 # History functions
-
 def history(H_old, psi_new, psi_cr):
     history_max_tmp = fe.conditional(fe.gt(psi_new - psi_cr, 0), psi_new - psi_cr, 0)
     history_max = fe.conditional(fe.gt(history_max_tmp, H_old), history_max_tmp, H_old)
@@ -12,12 +12,6 @@ def history(H_old, psi_new, psi_cr):
 
 # ---------------------------------------------------------------- 
 # Degradation functions
-
-# def g_d(d):
-#     m = 2
-#     degrad = m * ((1 - d)**3 - (1 - d)**2) + 3 * (1 - d)**2 - 2 * (1 - d)**3
-#     return degrad 
-
 def g_d(d):
     degrad = (1 - d)**2 + 1e-10;
     return degrad 
@@ -32,7 +26,6 @@ def g_d_prime(d, degrad_func):
 
 # ---------------------------------------------------------------- 
 # Linear elasticity
-
 def strain(grad_u):
     return 0.5*(grad_u + grad_u.T)
 
@@ -41,6 +34,7 @@ def psi_linear_elasticity(epsilon, lamda, mu):
     return lamda / 2 * fe.tr(epsilon)**2 + mu * fe.inner(epsilon, epsilon)
 
 
+# ----------------------------------------------------------------
 # Model A
 def psi_plus_linear_elasticity_model_A(epsilon, lamda, mu):
     return psi_linear_elasticity(epsilon, lamda, mu)
@@ -50,7 +44,8 @@ def psi_minus_linear_elasticity_model_A(epsilon, lamda, mu):
     return 0
 
 
-# Model B
+# ----------------------------------------------------------------
+# Model B: Amor paper https://doi.org/10.1016/j.jmps.2009.04.011
 def psi_plus_linear_elasticity_model_B(epsilon, lamda, mu):
     kappa = lamda + 2. / 3. * mu
     tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
@@ -63,6 +58,37 @@ def psi_minus_linear_elasticity_model_B(epsilon, lamda, mu):
     return kappa / 2. * tr_epsilon_minus**2
 
 
+# ----------------------------------------------------------------
+# Model C: Miehe paper https://doi.org/10.1002/nme.2861
+# Eigenvalue decomposition for 2x2 matrix
+# See https://yutsumura.com/express-the-eigenvalues-of-a-2-by-2-matrix-in-terms-of-the-trace-and-determinant/
+# Remarks(Tianju): The ufl functions Max and Min do not seem to behave as expected
+# For example, the following line of code works
+# tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
+# However, the following line of code does not work (Newton solver never converges)
+# tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
+def psi_plus_linear_elasticity_model_C(epsilon, lamda, mu):
+    sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
+    eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
+    eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
+    tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
+    eigen_value_1_plus = (eigen_value_1 + np.absolute(eigen_value_1)) / 2
+    eigen_value_2_plus = (eigen_value_2 + np.absolute(eigen_value_2)) / 2
+    return lamda / 2 * tr_epsilon_plus**2 + mu * (eigen_value_1_plus**2 + eigen_value_2_plus**2)
+
+
+def psi_minus_linear_elasticity_model_C(epsilon, lamda, mu):
+    sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
+    eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
+    eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
+    tr_epsilon_minus = (fe.tr(epsilon) - np.absolute(fe.tr(epsilon))) / 2
+    eigen_value_1_minus = (eigen_value_1 - np.absolute(eigen_value_1)) / 2
+    eigen_value_2_minus = (eigen_value_2 - np.absolute(eigen_value_2)) / 2
+    return lamda / 2 * tr_epsilon_minus**2 + mu * (eigen_value_1_minus**2 + eigen_value_2_minus**2)
+
+
+# ---------------------------------------------------------------- 
+# Cauchy stress
 def cauchy_stress_plus(epsilon, psi_plus):
     epsilon = fe.variable(epsilon)
     energy_plus = psi_plus(epsilon)
@@ -90,7 +116,6 @@ def cauchy_stress(epsilon, psi):
 
 # ---------------------------------------------------------------- 
 # Borden2016_plasticity: https://doi.org/10.1016/j.cma.2016.09.005
-
 def psi_aux_Borden(F, mu, kappa):
     J = fe.det(F)
     C = F.T * F
@@ -120,7 +145,6 @@ def psi_Borden(F, mu, kappa):
 
 # ---------------------------------------------------------------- 
 # Miehe2014_finie_strain: https://doi.org/10.1016/j.cma.2014.11.016
-
 def psi_Miehe(F, mu, beta):
     J = fe.det(F)
     C = F.T * F
@@ -138,7 +162,6 @@ def psi_minus_Miehe(F, mu, beta):
     
 # ---------------------------------------------------------------- 
 # first Piola-Kirchhoff stress
-
 def first_PK_stress_plus(F, psi_plus):
     F = fe.variable(F)
     energy_plus = psi_plus(F)

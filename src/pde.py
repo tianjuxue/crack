@@ -26,10 +26,10 @@ class PDE(object):
         self.build_mesh()
         self.set_boundaries()
         self.l0 = 2 * self.mesh.hmin()
-        self.staggered_tol = 1e-6
-        self.staggered_maxiter = 500
-        self.monolithic_tol = 1e-6
-        self.monolithic_maxiter = 500
+        self.staggered_tol = 1e-5
+        self.staggered_maxiter = 1000 
+        self.monolithic_tol = 1e-5
+        self.monolithic_maxiter = 1000
         self.map_flag = False
         self.delta_u_recorded = []
         self.sigma_recorded = []
@@ -110,7 +110,7 @@ class PDE(object):
             self.presLoad.t = disp
 
             newton_prm = solver.parameters['newton_solver']
-            newton_prm['maximum_iterations'] = 1000
+            newton_prm['maximum_iterations'] = 100
             # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
 
@@ -186,6 +186,7 @@ class PDE(object):
         self.U = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
         self.W = fe.FunctionSpace(self.mesh, 'CG', 1) 
 
+        self.EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
         self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
         self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
 
@@ -205,6 +206,7 @@ class PDE(object):
         self.H_old = da.Function(self.WW)
 
         map_plot = da.Function(self.MM, name="m")
+        e = da.Function(self.EE, name="e")
 
         self.build_weak_form_staggered()
         J_u = fe.derivative(self.G_u, self.x_new, del_x)
@@ -219,6 +221,7 @@ class PDE(object):
         file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
         file_results.parameters["functions_share_mesh"] = True
 
+        vtkfile_e = fe.File('data/pvd/{}/e.pvd'.format(self.case_name))
         vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
         vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
 
@@ -234,17 +237,18 @@ class PDE(object):
             self.presLoad.t = disp
 
             newton_prm = solver_u.parameters['newton_solver']
-            newton_prm['maximum_iterations'] = 1000 
+            newton_prm['maximum_iterations'] = 100 
             # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
 
             newton_prm = solver_d.parameters['newton_solver']
-            newton_prm['maximum_iterations'] = 1000 
+            newton_prm['maximum_iterations'] = 100 
             # newton_prm['absolute_tolerance'] = 1e-4
             newton_prm['relaxation_parameter'] = rp
 
             self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
             
+            vtkfile_e_staggered = fe.File('data/pvd/{}/step{}/e.pvd'.format(self.case_name, i))
             vtkfile_u_staggered = fe.File('data/pvd/{}/step{}/u.pvd'.format(self.case_name, i))
             vtkfile_d_staggered = fe.File('data/pvd/{}/step{}/d.pvd'.format(self.case_name, i))
             iteration = 0
@@ -272,12 +276,13 @@ class PDE(object):
 
                 x_old.assign(self.x_new)
                 d_old.assign(self.d_new)
+                e.assign(fe.project(self.H_old, self.EE))
 
                 print('---------------------------------------------------------------------------------')
                 print('>> iteration. {}, err_u = {:.5}, err_d = {:.5}, error = {:.5}'.format(iteration, err_x, err_d, err))
                 print('---------------------------------------------------------------------------------')
 
-
+                vtkfile_e_staggered << e
                 vtkfile_u_staggered << self.x_new
                 vtkfile_d_staggered << self.d_new
 
@@ -294,6 +299,7 @@ class PDE(object):
             file_results.write(self.d_new, i)
             file_results.write(map_plot, i)
 
+            vtkfile_e << e
             vtkfile_u << self.x_new
             vtkfile_d << self.d_new
 
@@ -606,9 +612,9 @@ class HalfCrackSqaure(PDE):
         self.case_name = "half_crack_square"
         super(HalfCrackSqaure, self).__init__(args)
 
-        # self.displacements = np.concatenate((np.linspace(0, 0.05, 3), np.linspace(0.06, 0.15, 10)))
+        self.displacements = np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.15, 101)))
 
-        self.displacements = np.linspace(0., 0.15, 51)
+        # self.displacements = np.linspace(0.0, 0.2, 51)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
 
@@ -625,7 +631,8 @@ class HalfCrackSqaure(PDE):
         self.finish_flag = False
         self.map_flag = True
 
-        # self.l0 /= 2
+        # For MFEM
+        self.l0 /= 2
 
 
     def build_mesh(self):
@@ -657,6 +664,14 @@ class HalfCrackSqaure(PDE):
             def inside(self, x, on_boundary):
                 return on_boundary and fe.near(x[1], height)
 
+        class Left(fe.SubDomain):
+            def inside(self, x, on_boundary):
+                return on_boundary and fe.near(x[0], 0)
+
+        class Right(fe.SubDomain):
+            def inside(self, x, on_boundary):                    
+                return on_boundary and fe.near(x[0], length)
+
         class Corner(fe.SubDomain):
             def inside(self, x, on_boundary):                    
                 return fe.near(x[0], 0) and fe.near(x[1], 0)
@@ -675,6 +690,8 @@ class HalfCrackSqaure(PDE):
         self.upper = Upper()
         self.corner = Corner()
         self.notch = Notch()
+        self.left = Left()
+        self.right = Right()
 
 
     def set_bcs_monolithic(self):
@@ -718,7 +735,10 @@ class HalfCrackSqaure(PDE):
         G_d = (self.H_new * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
-        G_d += 0.5 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
+        # G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
+
+        G_d += 0.1 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
 
         self.G = G_u + G_d
 
@@ -734,9 +754,25 @@ class HalfCrackSqaure(PDE):
         BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
         BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
         BC_d_notch = fe.DirichletBC(self.W, fe.Constant(1.), self.notch, method='pointwise')
-
         self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
         self.BC_d = []
+
+        # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
+        # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
+        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
+        # BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
+        # BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
+        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
+        # self.BC_d = []
+
+
+        # self.presLoad = da.Expression(("t", 0), t=0.0, degree=1)
+        # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
+        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
+        # BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
+        # BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
+        # self.BC_u = [BC_u_lower, BC_u_upper] 
+        # self.BC_d = []
 
 
     def build_weak_form_staggered(self):
@@ -751,26 +787,27 @@ class HalfCrackSqaure(PDE):
 
         self.mfem_grad = mfem_grad_wrapper(fe.grad)
 
-        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
 
         sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
         sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
 
         self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
             + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
- 
 
+        self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
+            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
+ 
         # self.G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
         #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
-        g_c = 0.01
-        self.G_d = (self.psi_plus(strain(self.mfem_grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
-            + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
+        # g_c = 0.01
+        # self.G_d = (self.psi_plus(strain(self.mfem_grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
+        #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
 
-        self.G_d += 0.1 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
-
+        # self.G_d += 0.5 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
 
 
 
@@ -1015,14 +1052,29 @@ def test(args):
     # pde_sf.monolithic_solve()
     # pde_sf.staggered_solve()
 
-    plt.figure()
+    fig = plt.figure()
     plt.plot(pde_hc.delta_u_recorded, pde_hc.sigma_recorded, linestyle='--', marker='o', color='red')
     plt.tick_params(labelsize=14)
     plt.xlabel("Vertical displacement of top side", fontsize=14)
     plt.ylabel("Force on top side", fontsize=14)
+    fig.savefig('data/pdf/{}/force_load.pdf'.format(pde_hc.case_name), bbox_inches='tight')
     plt.show()
 
+
+def show_map():
+    x1 = np.linspace(0, 0.5, 101)
+    y1 = 0.5*x1
+    x2 = np.linspace(0.5, 1, 101)
+    y2 = -6*x2**3 + 14*x2**2 -9*x2 + 2
+    x3 = np.linspace(1, 2, 101)
+    y3 = x3
+    plt.figure()
+    plt.plot(x1, y1)
+    plt.plot(x2, y2)
+    plt.plot(x3, y3)
+    plt.show()
 
 if __name__ == '__main__':
     args = arguments.args
     test(args)
+    # show_map()

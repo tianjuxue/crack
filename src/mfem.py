@@ -34,37 +34,43 @@ fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
 
+# def ratio_function_ufl(ratio):
+#     return ratio**1.5
+
+
+# def inverse_ratio_function_ufl(ratio):
+#     return ratio**(1/1.5)
+
+
+# def ratio_function_normal(ratio):
+#     return ratio**(1.5)
+
+
+# def inverse_ratio_function_normal(ratio):
+#     return ratio**(1/1.5)
+
+
+
 def ratio_function_ufl(ratio):
-    return ratio**1.5
+    return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, -6*ratio**3 + 14*ratio**2 -9*ratio + 2)
 
 
-def inverse_ratio_function_ufl(ratio):
-    return ratio**(1/1.5)
-
-
-def ratio_function_normal(ratio):
-    return ratio**(1.5)
-
-
-def inverse_ratio_function_normal(ratio):
-    return ratio**(1/1.5)
-
-
+ 
 
 # def ratio_function_ufl(ratio):
 #     return ratio
 
 
-# def inverse_ratio_function_ufl(ratio):
-#     return ratio
+def inverse_ratio_function_ufl(ratio):
+    return ratio
 
 
-# def ratio_function_normal(ratio):
-#     return ratio
+def ratio_function_normal(ratio):
+    return ratio
 
 
-# def inverse_ratio_function_normal(ratio):
-#     return ratio
+def inverse_ratio_function_normal(ratio):
+    return ratio
     
 
 
