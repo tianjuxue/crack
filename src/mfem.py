@@ -12,28 +12,54 @@ fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
 def ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, 3./2.*ratio - 1./2.)
+    return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
 
 
 def inverse_ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, 1./4.), 2.*ratio, 2./3.*ratio + 1./3.)
+    return fe.conditional(fe.lt(ratio, -1./4.), 2./3.* ratio - 1./3., fe.conditional(fe.gt(ratio, 1./4.), 2./3.* ratio + 1./3., 2. * ratio))
 
 
 def ratio_function_normal(ratio):
-    if ratio < 1./2:
+    if ratio <= 1./2 and ratio >= -1./2:
         return 1./2.*ratio
-    else:
+    elif ratio > 1/2:
         return 3./2.*ratio - 1./2.
+    else:
+        return 3./2.*ratio + 1./2.
 
 
 def inverse_ratio_function_normal(ratio):
-    if ratio < 1./4.:
+    if ratio <= 1./4 and ratio >= -1./4:
         return 2.*ratio
-    else:
+    elif ratio > 1/4:
         return 2./3.*ratio + 1./3.
+    else:
+        return 2./3.*ratio - 1./3.
 
 
 
+# def ratio_function_ufl(ratio):
+#     return ratio**1.5
+
+
+# def inverse_ratio_function_ufl(ratio):
+#     return ratio**(1/1.5)
+
+
+# def ratio_function_normal(ratio):
+#     return ratio**(1.5)
+
+
+# def inverse_ratio_function_normal(ratio):
+#     return ratio**(1/1.5)
+
+
+
+# def ratio_function_ufl(ratio):
+#     return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, -6*ratio**3 + 14*ratio**2 -9*ratio + 2)
+
+
+ 
 
 # def ratio_function_ufl(ratio):
 #     return ratio
@@ -50,6 +76,7 @@ def inverse_ratio_function_normal(ratio):
 # def inverse_ratio_function_normal(ratio):
 #     return ratio
     
+
 
 def distance_function_line_segement_ufl(P, A=[-1, 0], B=[1, 0]):     
     AB = [None, None]
@@ -113,15 +140,53 @@ def distance_function_segments_ufl(P, control_points, impact_radii):
         return df, (1 - xi) * rho1 + xi * rho2
  
 
-def map_function_ufl(x_hat, control_points, impact_radii):
+def map_function_ufl(x_hat, control_points, impact_radii, boundary_info=None):
     if len(control_points) == 0:
         return x_hat
     x_hat = fe.variable(x_hat)
     df, rho = distance_function_segments_ufl(x_hat, control_points, impact_radii)
     grad_x_hat = fe.diff(df, x_hat)
     delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function_ufl(df / rho) - df))
-    return delta_x_hat + x_hat
+    if boundary_info is None:
+        return delta_x_hat + x_hat
+    else: 
+        last_control_point = control_points[-1]
+        points, directions, rho_default = boundary_info
+        mid_point, mid_point1, mid_point2 = points
+        direct_vec, rotated_vec = directions
+        aux_control_point1 = last_control_point + rho_default * rotated_vec
+        aux_control_point2 = last_control_point - rho_default * rotated_vec
 
+        w1 = np.linalg.norm(mid_point1 - aux_control_point1)
+        w2 = np.linalg.norm(mid_point2 - aux_control_point2)
+        w0 = np.linalg.norm(mid_point - last_control_point)
+
+        assert np.absolute(2*w0 - w1 - w2) < 1e-5
+
+        AB = mid_point - last_control_point
+        AP = x_hat - last_control_point
+
+        x1 = AB[0]
+        y1 = AB[1]
+        x2 = AP[0]
+        y2 = AP[1]
+
+        mod = fe.sqrt(x1**2 + y1**2)
+        df_to_direct = (x1 * y2 - y1 * x2) / mod  # AB x AP
+        df_to_rotated = (x1 * x2 + y1 * y2) / mod
+
+        k1 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + df_to_direct * (w1 - w2))
+
+        new_df_to_direct = rho_default * ratio_function_ufl(df_to_direct / rho_default)
+
+        k2 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + new_df_to_direct * (w1 - w2))
+
+        new_df_to_rotated = df_to_rotated * k1 / k2
+ 
+        x = fe.as_vector(last_control_point + direct_vec * new_df_to_rotated + rotated_vec * new_df_to_direct) 
+
+        return fe.conditional(fe.gt(df_to_rotated, 0), fe.conditional(fe.gt(np.absolute(df_to_direct), rho), x_hat, x), delta_x_hat + x_hat)
+ 
 
 def inverse_map_function_ufl(x, control_points, impact_radii):
     if len(control_points) == 0:
@@ -208,7 +273,7 @@ def distance_function_segments_normal(P, control_points, impact_radii):
  
 
 
-def map_function_normal(x_hat, control_points, impact_radii):
+def map_function_normal(x_hat, control_points, impact_radii, boundary_info=None):
     if len(control_points) == 0:
         return x_hat
     df, rho, point = distance_function_segments_normal(x_hat, control_points, impact_radii)
@@ -217,7 +282,54 @@ def map_function_normal(x_hat, control_points, impact_radii):
         delta_x_hat = np.array([0., 0.])
     else:
         delta_x_hat =  vec_dist / df * (rho * ratio_function_normal(df / rho) - df)
-    return delta_x_hat + x_hat
+ 
+    if boundary_info is None:
+        return delta_x_hat + x_hat
+    else: 
+        last_control_point = control_points[-1]
+        points, directions, rho_default = boundary_info
+        mid_point, mid_point1, mid_point2 = points
+        direct_vec, rotated_vec = directions
+        aux_control_point1 = last_control_point + rho_default * rotated_vec
+        aux_control_point2 = last_control_point - rho_default * rotated_vec
+
+        w1 = np.linalg.norm(mid_point1 - aux_control_point1)
+        w2 = np.linalg.norm(mid_point2 - aux_control_point2)
+        w0 = np.linalg.norm(mid_point - last_control_point)
+
+        assert np.absolute(2*w0 - w1 - w2) < 1e-5
+
+        AB = mid_point - last_control_point
+        AP = x_hat - last_control_point
+
+        x1 = AB[0]
+        y1 = AB[1]
+        x2 = AP[0]
+        y2 = AP[1]
+
+        mod = np.sqrt(x1**2 + y1**2)
+        df_to_direct = (x1 * y2 - y1 * x2) / mod  # AB x AP
+        df_to_rotated = (x1 * x2 + y1 * y2) / mod
+
+        k1 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + df_to_direct * (w1 - w2))
+
+        new_df_to_direct = rho_default * ratio_function_normal(df_to_direct / rho_default)
+
+        k2 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + new_df_to_direct * (w1 - w2))
+
+        new_df_to_rotated = df_to_rotated * k1 / k2
+ 
+        x = last_control_point + direct_vec * new_df_to_rotated + rotated_vec * new_df_to_direct
+
+
+        if df_to_rotated > 0:
+            if np.absolute(df_to_direct) > rho:
+                return x_hat
+            else:
+                return x
+        else:
+            return delta_x_hat + x_hat
+
 
 
 def inverse_map_function_normal(x, control_points, impact_radii):
@@ -230,7 +342,6 @@ def inverse_map_function_normal(x, control_points, impact_radii):
     else:
         delta_x =  vec_dist / df * (rho * inverse_ratio_function_normal(df / rho) - df)
     return delta_x + x
-
 
 
 class InterpolateExpression(fe.UserExpression):
@@ -262,7 +373,7 @@ def mfem():
         except Exception as e:
             print('Failed to delete {}, reason: {}' % (f, e))
 
-    plate = mshr.Rectangle(fe.Point(-2, -2), fe.Point(2, 2))
+    plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(100, 100))
     mesh = mshr.generate_mesh(plate, 50)
     # mesh = fe.RectangleMesh(fe.Point(-2, -2), fe.Point(2, 2), 50, 50)
 
@@ -272,36 +383,52 @@ def mfem():
     V = fe.FunctionSpace(mesh, "CG", 1)
     W = fe.FunctionSpace(mesh, "DG", 0)
 
-    n = 21
-    control_points = np.stack((np.linspace(0, 1, n), np.linspace(0, 1, n)), axis=1)
-    impact_radii = np.linspace(0., 0.5, n)
+    # n = 21
+    # control_points = np.stack((np.linspace(0, 1, n), np.linspace(0, 1, n)), axis=1)
+    # impact_radii = np.linspace(0., 0.5, n)
+
+    rho_default = 25. / np.sqrt(5) * 2 
+    control_points = np.array([[50., 50.], [62.5, 25.]])
+    impact_radii = np.array([rho_default, rho_default])
+
+    mid_point = np.array([75., 0.])
+    mid_point1 = np.array([100., 0.])
+    mid_point2 = np.array([50., 0.])
+    points = [mid_point, mid_point1, mid_point2]
+    direct_vec = np.array([1., -2])
+    rotated_vec = np.array([2., 1.])
+
+    direct_vec /= np.linalg.norm(direct_vec)
+    rotated_vec /= np.linalg.norm(rotated_vec)
+
+    directions = [direct_vec, rotated_vec]
+    boundary_info = [points, directions, rho_default]
 
 
-    df, xi = distance_function_segments_ufl(x_hat, control_points, impact_radii)
-    d = fe.project(df, V)
+    # df, xi = distance_function_segments_ufl(x_hat, control_points, impact_radii)
+    # d = fe.project(df, V)
 
-    delta_x = map_function_ufl(x_hat, control_points, impact_radii) - x_hat
+    delta_x = map_function_ufl(x_hat, control_points, impact_radii, boundary_info) - x_hat
     u = fe.project(delta_x, U)
 
+    # e = fe.Function(U)
     # int_exp = InterpolateExpression(u, control_points, impact_radii)
     # e = fe.interpolate(int_exp, U)
-
-    e = fe.Function(U)
-    int_exp = InterpolateExpression(e, control_points, impact_radii)
-    e = fe.project(int_exp, U)
+    # int_exp = InterpolateExpression(e, control_points, impact_radii)
+    # e = fe.project(int_exp, U)
 
  
     vtkfile_u = fe.File('data/pvd/mfem/u.pvd')
     u.rename("u", "u")
     vtkfile_u << u
 
-    vtkfile_d = fe.File('data/pvd/mfem/d.pvd')
-    d.rename("d", "d")
-    vtkfile_d << d
+    # vtkfile_d = fe.File('data/pvd/mfem/d.pvd')
+    # d.rename("d", "d")
+    # vtkfile_d << d
 
-    vtkfile_e = fe.File('data/pvd/mfem/e.pvd')
-    e.rename("e", "e")
-    vtkfile_e << e
+    # vtkfile_e = fe.File('data/pvd/mfem/e.pvd')
+    # e.rename("e", "e")
+    # vtkfile_e << e
 
 
 
