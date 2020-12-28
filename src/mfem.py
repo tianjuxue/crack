@@ -11,71 +11,53 @@ import ufl
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
-def ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
+def ratio_function_ufl(ratio, map_type):
+    if map_type == 'linear':
+        # return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
+        # Smoothed segements
+        return fe.conditional(fe.lt(ratio, -1./2.), -6*ratio**3 - 14*ratio**2 - 9*ratio - 2, \
+               fe.conditional(fe.gt(ratio, 1./2.), -6*ratio**3 + 14*ratio**2 - 9*ratio + 2, 1./2.* ratio))
+    elif map_type == 'power':
+        return ratio**1.5
+    elif map_type == 'identity':
+        return ratio
 
 
-def inverse_ratio_function_ufl(ratio):
-    return fe.conditional(fe.lt(ratio, -1./4.), 2./3.* ratio - 1./3., fe.conditional(fe.gt(ratio, 1./4.), 2./3.* ratio + 1./3., 2. * ratio))
+def inverse_ratio_function_ufl(ratio, map_type):
+    if map_type == 'linear':
+        return fe.conditional(fe.lt(ratio, -1./4.), 2./3.* ratio - 1./3., fe.conditional(fe.gt(ratio, 1./4.), 2./3.* ratio + 1./3., 2. * ratio))
+    elif map_type == 'power':
+        return ratio**(1/1.5)
+    elif map_type == 'identity':
+        return ratio
 
 
-def ratio_function_normal(ratio):
-    if ratio <= 1./2 and ratio >= -1./2:
-        return 1./2.*ratio
-    elif ratio > 1/2:
-        return 3./2.*ratio - 1./2.
-    else:
-        return 3./2.*ratio + 1./2.
+def ratio_function_normal(ratio, map_type):
+    if map_type == 'linear':
+        if ratio <= 1./2 and ratio >= -1./2:
+            return 1./2.*ratio
+        elif ratio > 1/2:
+            return 3./2.*ratio - 1./2.
+        else:
+            return 3./2.*ratio + 1./2.
+    elif map_type == 'power':
+        return ratio**(1.5)
+    elif map_type == 'identity':
+        return ratio
 
 
-def inverse_ratio_function_normal(ratio):
-    if ratio <= 1./4 and ratio >= -1./4:
-        return 2.*ratio
-    elif ratio > 1/4:
-        return 2./3.*ratio + 1./3.
-    else:
-        return 2./3.*ratio - 1./3.
-
-
-
-# def ratio_function_ufl(ratio):
-#     return ratio**1.5
-
-
-# def inverse_ratio_function_ufl(ratio):
-#     return ratio**(1/1.5)
-
-
-# def ratio_function_normal(ratio):
-#     return ratio**(1.5)
-
-
-# def inverse_ratio_function_normal(ratio):
-#     return ratio**(1/1.5)
-
-
-
-# def ratio_function_ufl(ratio):
-#     return fe.conditional(fe.lt(ratio, 1./2.), 1./2.*ratio, -6*ratio**3 + 14*ratio**2 -9*ratio + 2)
-
-
- 
-
-# def ratio_function_ufl(ratio):
-#     return ratio
-
-
-# def inverse_ratio_function_ufl(ratio):
-#     return ratio
-
-
-# def ratio_function_normal(ratio):
-#     return ratio
-
-
-# def inverse_ratio_function_normal(ratio):
-#     return ratio
-    
+def inverse_ratio_function_normal(ratio, map_type):
+    if map_type == 'linear':
+        if ratio <= 1./4 and ratio >= -1./4:
+            return 2.*ratio
+        elif ratio > 1/4:
+            return 2./3.*ratio + 1./3.
+        else:
+            return 2./3.*ratio - 1./3.
+    elif map_type == 'power':
+        return ratio**(1/1.5)
+    elif map_type == 'identity':
+        return ratio
 
 
 def distance_function_line_segement_ufl(P, A=[-1, 0], B=[1, 0]):     
@@ -140,13 +122,13 @@ def distance_function_segments_ufl(P, control_points, impact_radii):
         return df, (1 - xi) * rho1 + xi * rho2
  
 
-def map_function_ufl(x_hat, control_points, impact_radii, boundary_info=None):
+def map_function_ufl(x_hat, control_points, impact_radii, map_type, boundary_info=None):
     if len(control_points) == 0:
         return x_hat
     x_hat = fe.variable(x_hat)
     df, rho = distance_function_segments_ufl(x_hat, control_points, impact_radii)
     grad_x_hat = fe.diff(df, x_hat)
-    delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function_ufl(df / rho) - df))
+    delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function_ufl(df / rho, map_type) - df))
     if boundary_info is None:
         return delta_x_hat + x_hat
     else: 
@@ -177,7 +159,7 @@ def map_function_ufl(x_hat, control_points, impact_radii, boundary_info=None):
 
         k1 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + df_to_direct * (w1 - w2))
 
-        new_df_to_direct = rho_default * ratio_function_ufl(df_to_direct / rho_default)
+        new_df_to_direct = rho_default * ratio_function_ufl(df_to_direct / rho_default, map_type)
 
         k2 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + new_df_to_direct * (w1 - w2))
 
@@ -188,13 +170,13 @@ def map_function_ufl(x_hat, control_points, impact_radii, boundary_info=None):
         return fe.conditional(fe.gt(df_to_rotated, 0), fe.conditional(fe.gt(np.absolute(df_to_direct), rho), x_hat, x), delta_x_hat + x_hat)
  
 
-def inverse_map_function_ufl(x, control_points, impact_radii):
+def inverse_map_function_ufl(x, control_points, impact_radii, map_type):
     if len(control_points) == 0:
         return x
     x = fe.variable(x)
     df, rho = distance_function_segments_ufl(x, control_points, impact_radii)
     grad_x = fe.diff(df, x)
-    delta_x = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x * (rho * inverse_ratio_function_ufl(df / rho) - df))
+    delta_x = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x * (rho * inverse_ratio_function_ufl(df / rho, map_type) - df))
     return delta_x + x
 
 
@@ -273,7 +255,7 @@ def distance_function_segments_normal(P, control_points, impact_radii):
  
 
 
-def map_function_normal(x_hat, control_points, impact_radii, boundary_info=None):
+def map_function_normal(x_hat, control_points, impact_radii, map_type, boundary_info=None):
     if len(control_points) == 0:
         return x_hat
     df, rho, point = distance_function_segments_normal(x_hat, control_points, impact_radii)
@@ -281,7 +263,7 @@ def map_function_normal(x_hat, control_points, impact_radii, boundary_info=None)
     if df <= 0 or df >= rho:
         delta_x_hat = np.array([0., 0.])
     else:
-        delta_x_hat =  vec_dist / df * (rho * ratio_function_normal(df / rho) - df)
+        delta_x_hat =  vec_dist / df * (rho * ratio_function_normal(df / rho, map_type) - df)
  
     if boundary_info is None:
         return delta_x_hat + x_hat
@@ -313,14 +295,13 @@ def map_function_normal(x_hat, control_points, impact_radii, boundary_info=None)
 
         k1 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + df_to_direct * (w1 - w2))
 
-        new_df_to_direct = rho_default * ratio_function_normal(df_to_direct / rho_default)
+        new_df_to_direct = rho_default * ratio_function_normal(df_to_direct / rho_default, map_type)
 
         k2 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + new_df_to_direct * (w1 - w2))
 
         new_df_to_rotated = df_to_rotated * k1 / k2
  
         x = last_control_point + direct_vec * new_df_to_rotated + rotated_vec * new_df_to_direct
-
 
         if df_to_rotated > 0:
             if np.absolute(df_to_direct) > rho:
@@ -331,8 +312,7 @@ def map_function_normal(x_hat, control_points, impact_radii, boundary_info=None)
             return delta_x_hat + x_hat
 
 
-
-def inverse_map_function_normal(x, control_points, impact_radii):
+def inverse_map_function_normal(x, control_points, impact_radii, map_type):
     if len(control_points) == 0:
         return x
     df, rho, point = distance_function_segments_normal(x, control_points, impact_radii)
@@ -340,7 +320,7 @@ def inverse_map_function_normal(x, control_points, impact_radii):
     if df <= 0 or df >= rho:
         delta_x = np.array([0., 0.])
     else:
-        delta_x =  vec_dist / df * (rho * inverse_ratio_function_normal(df / rho) - df)
+        delta_x =  vec_dist / df * (rho * inverse_ratio_function_normal(df / rho, map_type) - df)
     return delta_x + x
 
 
@@ -429,7 +409,6 @@ def mfem():
     # vtkfile_e = fe.File('data/pvd/mfem/e.pvd')
     # e.rename("e", "e")
     # vtkfile_e << e
-
 
 
 if __name__ == '__main__':
