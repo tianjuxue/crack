@@ -11,7 +11,7 @@ import shutil
 from functools import partial
 from . import arguments
 from .constitutive import *
-from .mfem import distance_function_segments_ufl, map_function_normal, inverse_map_function_normal
+from .mfem import distance_function_segments_ufl, map_function_normal, map_function_ufl, inverse_map_function_normal
 
 
 # fe.parameters["form_compiler"]["quadrature_degree"] = 4
@@ -186,8 +186,9 @@ class PDE(object):
         self.U = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
         self.W = fe.FunctionSpace(self.mesh, 'CG', 1) 
 
-        self.EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
+        self.EE = fe.FunctionSpace(self.mesh, 'DG', 0) 
         self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
+        # self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
         self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
 
         self.eta = fe.TestFunction(self.U)
@@ -240,9 +241,9 @@ class PDE(object):
                 a = p * q * fe.dx
                 L = history(self.H_old, self.update_history(), self.psi_cr) * q * fe.dx
 
-                # self.interpolate_map()
-                delta_x = self.x - self.x_hat
-                self.map_plot.assign(fe.project(delta_x, self.MM))
+                self.interpolate_map()
+                # delta_x = self.x - self.x_hat
+                # self.map_plot.assign(fe.project(delta_x, self.MM))
 
             self.presLoad.t = disp
 
@@ -310,7 +311,7 @@ class PDE(object):
             if self.map_flag:
                 self.update_map()
 
-
+            file_results.write(e, i)
             file_results.write(self.x_new, i)
             file_results.write(self.d_new, i)
             file_results.write(self.map_plot, i)
@@ -355,31 +356,32 @@ class MappedPDE(PDE):
 
 
     def initialize_control_points_and_impact_radii(self):
-        # self.control_points = []
-        # self.impact_radii = []
-        # control_points = np.asarray([[self.length/2, self.height/2]])
-        # for new_tip_point in control_points:
-        #     self.compute_impact_radii(new_tip_point)
+        self.control_points = []
+        self.impact_radii = []
+        control_points = np.asarray([[self.length/2, self.height/2]])
+        for new_tip_point in control_points:
+            self.compute_impact_radii(new_tip_point)
+
         # self.control_points = np.asarray([[self.length/2, self.height/2], [self.length, self.height/2]])
         # self.impact_radii = np.array([self.height/4, self.height/4])
 
 
-        rho_default = 25. / np.sqrt(5) * 2 
-        self.control_points = np.array([[50., 50.], [62.5, 25.]])
-        self.impact_radii = np.array([rho_default, rho_default])
+        # rho_default = 25. / np.sqrt(5) * 2 
+        # self.control_points = np.array([[50., 50.], [62.5, 25.]])
+        # self.impact_radii = np.array([rho_default, rho_default])
 
-        mid_point = np.array([75., 0.])
-        mid_point1 = np.array([100., 0.])
-        mid_point2 = np.array([50., 0.])
-        points = [mid_point, mid_point1, mid_point2]
-        direct_vec = np.array([1., -2])
-        rotated_vec = np.array([2., 1.])
+        # mid_point = np.array([75., 0.])
+        # mid_point1 = np.array([100., 0.])
+        # mid_point2 = np.array([50., 0.])
+        # points = [mid_point, mid_point1, mid_point2]
+        # direct_vec = np.array([1., -2])
+        # rotated_vec = np.array([2., 1.])
 
-        direct_vec /= np.linalg.norm(direct_vec)
-        rotated_vec /= np.linalg.norm(rotated_vec)
+        # direct_vec /= np.linalg.norm(direct_vec)
+        # rotated_vec /= np.linalg.norm(rotated_vec)
 
-        directions = [direct_vec, rotated_vec]
-        self.boundary_info = [points, directions, rho_default]
+        # directions = [direct_vec, rotated_vec]
+        # self.boundary_info = [points, directions, rho_default]
 
 
     def compute_impact_radius_tip_point(self, P, direct_vec=None):
@@ -571,6 +573,7 @@ class MappedPDE(PDE):
         class InterpolateExpression(fe.UserExpression):
             def eval(self, values, x_hat):
                 x = map_function_normal(x_hat, control_points, impact_radii, map_type, boundary_info)
+                # x = np.array(map_function_ufl(x_hat, control_points, impact_radii, map_type, boundary_info))
                 values[0] = (x - x_hat)[0]
                 values[1] = (x - x_hat)[1]
 
@@ -593,28 +596,30 @@ class MappedPDE(PDE):
         boundary_info = self.boundary_info
 
         if boundary_info is None:
-            control_points_old_map = self.control_points
-            impact_radii_old_map = self.impact_radii
-        else:
             control_points_old_map = self.control_points[:-1]
             impact_radii_old_map = self.impact_radii_old
+        else:
+            control_points_old_map = self.control_points
+            impact_radii_old_map = self.impact_radii
 
+        # print("boundary_info {}".format(boundary_info))
+        # print("control_points_new_map {}".format(control_points_new_map))
+        # print("control_points_old_map {}".format(control_points_old_map))
+        # print("impact_radii_new_map {}".format(impact_radii_new_map))
+        # print("impact_radii_old_map {}".format(impact_radii_old_map))
 
         class InterpolateExpression(fe.UserExpression):
             def eval(self, values, x_hat_new):
                 x = map_function_normal(x_hat_new, control_points_new_map, impact_radii_new_map, map_type, boundary_info)
                 x_hat_old = inverse_map_function_normal(x, control_points_old_map, impact_radii_old_map, map_type)
+
                 point = fe.Point(x_hat_old)
 
                 if not inside_domain(point):
-                    print("x_hat_new {}".format(x_hat_new))
-                    print("x {}".format(x))
-                    print("x_hat_old {}".format(x_hat_old))
-                    print("control_points_new_map {}".format(control_points_new_map))
-                    print("control_points_old_map {}".format(control_points_old_map))
-                    print("impact_radii_new_map {}".format(impact_radii_new_map))
-                    print("impact_radii_old_map {}".format(impact_radii_old_map))
-
+                    print("x_hat_new is ({}, {})".format(float(x_hat_new[0]), float(x_hat_new[1])))
+                    print("x is ({}, {})".format(float(x[0]), float(x[1])))
+                    print("x_hat_old is ({}, {})".format(float(x_hat_old[0]), float(x_hat_old[1])))
+            
                 values[0] = H_old(point)
 
             def value_shape(self):
@@ -633,7 +638,7 @@ class MappedPDE(PDE):
 
         d_integral_interval_initial = 1
 
-        d_integral_interval = self.rho_default
+        d_integral_interval = 1.5*self.rho_default
 
         update_flag = False
 

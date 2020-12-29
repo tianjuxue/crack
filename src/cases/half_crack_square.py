@@ -19,7 +19,7 @@ class HalfCrackSqaure(MappedPDE):
         super(HalfCrackSqaure, self).__init__(args)
 
         # self.displacements = np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.15, 101)))
-        self.displacements = np.concatenate((np.linspace(0, 0.15, 11), np.linspace(0.15, 0.3, 201)))
+        self.displacements = np.concatenate((np.linspace(0, 0.16, 11), np.linspace(0.16, 0.18, 101)))
         # self.displacements = np.linspace(0.0, 0.3, 101)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
@@ -31,10 +31,10 @@ class HalfCrackSqaure(MappedPDE):
         self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
         self.l0 = 2 * self.mesh.hmin()
 
-        self.map_type = 'identity'
+        self.map_type = 'linear'
         if self.map_type == 'linear':
             self.l0 /= 2
-            self.finish_flag = True
+            # self.finish_flag = True
         elif self.map_type == 'identity':
             self.finish_flag = True
 
@@ -49,7 +49,7 @@ class HalfCrackSqaure(MappedPDE):
         notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
         # notch = mshr.Polygon([fe.Point(self.length / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 - 1e-10), \
         #                       fe.Point(self.length * 3 / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 + 1e-10)])
-        self.mesh = mshr.generate_mesh(plate - notch, 100)
+        self.mesh = mshr.generate_mesh(plate - notch, 50)
 
         # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
  
