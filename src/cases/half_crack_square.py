@@ -19,16 +19,18 @@ class HalfCrackSqaure(MappedPDE):
         super(HalfCrackSqaure, self).__init__(args)
 
         # self.displacements = np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.15, 101)))
-        self.displacements = np.concatenate((np.linspace(0, 0.16, 11), np.linspace(0.16, 0.18, 101)))
-        # self.displacements = np.linspace(0.0, 0.3, 101)
+        self.displacements = 1e-3*np.concatenate((np.linspace(0, 0.07, 11), np.linspace(0.07, 0.15, 101)))
+        # self.displacements = 1e-3*np.linspace(0.0, 0.3, 51)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
+ 
+        self.psi_cr = 1e-7
 
-        self.psi_cr = 0.01
-
-        self.mu = 1e3
-        self.nu = 0.4
+        self.E = 1e5
+        self.nu = 0.3
+        self.mu = self.E / (2 * (1 + self.nu))
         self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
+
         self.l0 = 2 * self.mesh.hmin()
 
         self.map_type = 'linear'
@@ -171,9 +173,9 @@ class HalfCrackSqaure(MappedPDE):
         self.presLoad = da.Expression(("t", 0), t=0.0, degree=1)
         BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
         BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
-        BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
-        BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
-        self.BC_u = [BC_u_lower, BC_u_upper] 
+        BC_u_left = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.left)
+        BC_u_right = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.right)
+        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
         self.BC_d = []
 
 
@@ -199,16 +201,9 @@ class HalfCrackSqaure(MappedPDE):
             + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
 
         self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
- 
-        # self.G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
+                + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
-        # g_c = 0.01
-        # self.G_d = (self.psi_plus(strain(self.mfem_grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-        # g_c = 0.01
+        # g_c = 1e-6
         # self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
         #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 

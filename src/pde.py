@@ -347,7 +347,7 @@ class PDE(object):
 class MappedPDE(PDE):
     def __init__(self, args):
         super(MappedPDE, self).__init__(args)
-        self.rho_default = 20.
+        self.rho_default = 15.
         self.d_integrals = []
         self.finish_flag = False
         self.map_flag = True
