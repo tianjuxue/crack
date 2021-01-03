@@ -40,6 +40,38 @@ class HalfCrackSqaure(MappedPDE):
         elif self.map_type == 'identity':
             self.finish_flag = True
 
+        self.rho_default = 15.
+        self.d_integral_interval = 1.5*self.rho_default
+        self.initialize_control_points_and_impact_radii()
+
+
+    def initialize_control_points_and_impact_radii(self):
+        self.control_points = []
+        self.impact_radii = []
+        control_points = np.asarray([[self.length/2, self.height/2]])
+        for new_tip_point in control_points:
+            self.compute_impact_radii(new_tip_point)
+
+        # self.control_points = np.asarray([[self.length/2, self.height/2], [self.length, self.height/2]])
+        # self.impact_radii = np.array([self.height/4, self.height/4])
+
+        # rho_default = 25. / np.sqrt(5) * 2 
+        # self.control_points = np.array([[50., 50.], [62.5, 25.]])
+        # self.impact_radii = np.array([rho_default, rho_default])
+
+        # mid_point = np.array([75., 0.])
+        # mid_point1 = np.array([100., 0.])
+        # mid_point2 = np.array([50., 0.])
+        # points = [mid_point, mid_point1, mid_point2]
+        # direct_vec = np.array([1., -2])
+        # rotated_vec = np.array([2., 1.])
+
+        # direct_vec /= np.linalg.norm(direct_vec)
+        # rotated_vec /= np.linalg.norm(rotated_vec)
+
+        # directions = [direct_vec, rotated_vec]
+        # self.boundary_info = [points, directions, rho_default]
+
 
     def build_mesh(self):
         self.length = 100
@@ -141,7 +173,7 @@ class HalfCrackSqaure(MappedPDE):
         G_d = (self.H_new * self.zeta * g_d_prime(self.d_new, g_d) \
             + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
 
-        # G_d = (history(self.H_old, self.psi_plus(strain(fe.grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
+        # G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
         #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
 
         G_d += 0.1 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
@@ -221,6 +253,7 @@ def test(args):
     pde_hc = HalfCrackSqaure(args)
     # pde_hc.monolithic_solve()
     pde_hc.staggered_solve()
+    plt.show()
  
 
 if __name__ == '__main__':

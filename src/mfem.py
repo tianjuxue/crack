@@ -21,6 +21,8 @@ def ratio_function_ufl(ratio, map_type):
         return ratio**1.5
     elif map_type == 'identity':
         return ratio
+    else:
+        raise NotImplementedError("To be implemented")
 
 
 def inverse_ratio_function_ufl(ratio, map_type):
@@ -30,6 +32,8 @@ def inverse_ratio_function_ufl(ratio, map_type):
         return ratio**(1/1.5)
     elif map_type == 'identity':
         return ratio
+    else:
+        raise NotImplementedError("To be implemented")
 
 
 def ratio_function_normal(ratio, map_type):
@@ -44,6 +48,8 @@ def ratio_function_normal(ratio, map_type):
         return ratio**(1.5)
     elif map_type == 'identity':
         return ratio
+    else:
+        raise NotImplementedError("To be implemented")
 
 
 def inverse_ratio_function_normal(ratio, map_type):
@@ -58,6 +64,8 @@ def inverse_ratio_function_normal(ratio, map_type):
         return ratio**(1/1.5)
     elif map_type == 'identity':
         return ratio
+    else:
+        raise NotImplementedError("To be implemented")
 
 
 def distance_function_line_segement_ufl(P, A=[-1, 0], B=[1, 0]):     
@@ -345,13 +353,10 @@ class InterpolateExpression(fe.UserExpression):
 
 
 
+# To be implemented...
 def map_function_blocks(x_hat, blocks, map_type):
     if len(blocks) == 0:
         return x_hat
-
-        
- 
-
 
     x_hat = fe.variable(x_hat)
     df, rho = distance_function_segments_ufl(x_hat, control_points, impact_radii)

@@ -16,6 +16,7 @@ from .mfem import distance_function_segments_ufl, map_function_normal, map_funct
 
 # fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
+#TODO: Change x to u if for displacement
 
 class PDE(object):
     def __init__(self, args):
@@ -33,7 +34,7 @@ class PDE(object):
         self.sigma_recorded = []
         self.psi_cr = 0.01
         self.update_weak_form = True
-
+        self.presLoad = fe.Expression("t", t=0.0, degree=1) # Child class should override self.presLoad
 
     def preparation(self):
         # files = glob.glob('data/pvd/{}/*'.format(self.case_name))
@@ -249,12 +250,12 @@ class PDE(object):
 
             newton_prm = solver_u.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 100 
-            # newton_prm['absolute_tolerance'] = 1e-4
+            newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
 
             newton_prm = solver_d.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 100 
-            # newton_prm['absolute_tolerance'] = 1e-4
+            newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
 
            
@@ -340,48 +341,15 @@ class PDE(object):
         plt.xlabel("Vertical displacement of top side", fontsize=14)
         plt.ylabel("Force on top side", fontsize=14)
         fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
-        plt.show()
-
 
 
 class MappedPDE(PDE):
     def __init__(self, args):
         super(MappedPDE, self).__init__(args)
-        self.rho_default = 15.
         self.d_integrals = []
         self.finish_flag = False
         self.map_flag = True
         self.boundary_info = None
-        self.initialize_control_points_and_impact_radii()
-
-
-    def initialize_control_points_and_impact_radii(self):
-        self.control_points = []
-        self.impact_radii = []
-        control_points = np.asarray([[self.length/2, self.height/2]])
-        for new_tip_point in control_points:
-            self.compute_impact_radii(new_tip_point)
-
-        # self.control_points = np.asarray([[self.length/2, self.height/2], [self.length, self.height/2]])
-        # self.impact_radii = np.array([self.height/4, self.height/4])
-
-
-        # rho_default = 25. / np.sqrt(5) * 2 
-        # self.control_points = np.array([[50., 50.], [62.5, 25.]])
-        # self.impact_radii = np.array([rho_default, rho_default])
-
-        # mid_point = np.array([75., 0.])
-        # mid_point1 = np.array([100., 0.])
-        # mid_point2 = np.array([50., 0.])
-        # points = [mid_point, mid_point1, mid_point2]
-        # direct_vec = np.array([1., -2])
-        # rotated_vec = np.array([2., 1.])
-
-        # direct_vec /= np.linalg.norm(direct_vec)
-        # rotated_vec /= np.linalg.norm(rotated_vec)
-
-        # directions = [direct_vec, rotated_vec]
-        # self.boundary_info = [points, directions, rho_default]
 
 
     def compute_impact_radius_tip_point(self, P, direct_vec=None):
@@ -638,8 +606,6 @@ class MappedPDE(PDE):
 
         d_integral_interval_initial = 1
 
-        d_integral_interval = 1.5*self.rho_default
-
         update_flag = False
 
         while len(self.d_integrals) < len(self.control_points):
@@ -649,7 +615,7 @@ class MappedPDE(PDE):
             if d_int > d_integral_interval_initial:
                 update_flag = True
         else:
-            if d_int - self.d_integrals[-1] > d_integral_interval:
+            if d_int - self.d_integrals[-1] > self.d_integral_interval:
                 update_flag = True
 
         # update_flag = False
