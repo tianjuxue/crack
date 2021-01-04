@@ -13,7 +13,7 @@ def history(H_old, psi_new, psi_cr):
 # ---------------------------------------------------------------- 
 # Degradation functions
 def g_d(d):
-    degrad = (1 - d)**2 + 1e-10;
+    degrad = (1 - d)**2;
     return degrad 
 
 
@@ -63,11 +63,17 @@ def psi_minus_linear_elasticity_model_B(epsilon, lamda, mu):
 # Model C: Miehe paper https://doi.org/10.1002/nme.2861
 # Eigenvalue decomposition for 2x2 matrix
 # See https://yutsumura.com/express-the-eigenvalues-of-a-2-by-2-matrix-in-terms-of-the-trace-and-determinant/
+
 # Remarks(Tianju): The ufl functions Max and Min do not seem to behave as expected
 # For example, the following line of code works
 # tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
 # However, the following line of code does not work (Newton solver never converges)
 # tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
+
+# Remarks(Tianju): If Newton solver fails to converge, consider using a non-zero initial guess for the displacement field
+# For example, use Model A to solve for one step and then switch back to Model C
+# The reason for the failure is not clear.
+# It may be because of the singular nature of Model C that causes trouble for UFL to take derivatives at the kink.
 def psi_plus_linear_elasticity_model_C(epsilon, lamda, mu):
     sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
     eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2

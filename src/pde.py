@@ -62,126 +62,8 @@ class PDE(object):
     def update_history(self):
         return 0
 
-
-    def monolithic_solve(self):
-        self.U = fe.VectorElement('CG', self.mesh.ufl_cell(), 1)  
-        self.W = fe.FiniteElement("CG", self.mesh.ufl_cell(), 1)
-        self.M = fe.FunctionSpace(self.mesh, self.U * self.W)
-
-        self.WW = fe.FunctionSpace(self.mesh, 'DG', 0)
-        self.EE = fe.FunctionSpace(self.mesh, 'CG', 1) 
-        self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
-
-        m_test = fe.TestFunctions(self.M)
-        m_delta = fe.TrialFunctions(self.M)
-        m_new = da.Function(self.M)
-        m_old = da.Function(self.M) 
-        m_pre = da.Function(self.M) 
-
-        self.eta, self.zeta = m_test
-        self.x_new, self.d_new = fe.split(m_new) # fe.split(m_new) is used in weak form, different from m_new.split() 
-        self.x_pre, self.d_pre = fe.split(m_pre)
-
-        self.H_old = da.Function(self.WW)
-        self.H_new = da.Function(self.WW)
-
-        e = da.Function(self.EE, name="e")
-        self.map_plot = da.Function(self.MM, name="m")
-
-        file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
-        file_results.parameters["functions_share_mesh"] = True
-
-        vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
-        vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
-
-        for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
-
-            print('\n')
-            print('=================================================================================')
-            print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
-            print('=================================================================================')
-
-            self.build_weak_form_monolithic()
-            dG = fe.derivative(self.G, m_new)
-
-            self.set_bcs_monolithic()
-            p = fe.NonlinearVariationalProblem(self.G, m_new, self.BC, dG)
-            solver = fe.NonlinearVariationalSolver(p)
-
-            self.presLoad.t = disp
-
-            newton_prm = solver.parameters['newton_solver']
-            newton_prm['maximum_iterations'] = 100
-            # newton_prm['absolute_tolerance'] = 1e-4
-            newton_prm['relaxation_parameter'] = rp
-
-            vtkfile_u_staggered = fe.File('data/pvd/{}/step{}/u.pvd'.format(self.case_name, i))
-            vtkfile_d_staggered = fe.File('data/pvd/{}/step{}/d.pvd'.format(self.case_name, i))
-            iteration = 0
-            err = 1.
-            while err > self.monolithic_tol:
-                iteration += 1
-
-                self.H_new.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
-
-                solver.solve()
-
-                np_m_new = np.asarray(m_new.vector())
-                np_m_old = np.asarray(m_old.vector())
-                err = np.linalg.norm(np_m_new - np_m_old) / np.sqrt(len(np_m_new))
-    
-                m_old.assign(m_new)
-
-                print('---------------------------------------------------------------------------------')
-                print('>> iteration. {}, error = {:.5}'.format(iteration, err))
-                print('---------------------------------------------------------------------------------')
-
-                self.x_plot, self.d_plot = m_new.split()
-                self.x_plot.rename("u", "u")
-                self.d_plot.rename("d", "d")
-                vtkfile_u_staggered << self.x_plot
-                vtkfile_d_staggered << self.d_plot
-
-                if err < self.monolithic_tol or iteration >= self.monolithic_maxiter:
-                    print('=================================================================================')
-                    print('\n')
-                    break
-
-            self.H_old.assign(self.H_new)
-            m_pre.assign(m_new)
-
-            if self.map_flag:
-                self.update_map()
-                # delta_x = self.x - self.x_hat
-                # self.map_plot.assign(fe.project(delta_x, self.MM))
-                self.interpolate_map()
-
-
-            e.assign(da.interpolate(self.H_old, self.EE))
-            # e.assign(da.project(self.psi_plus(strain(fe.grad(self.x_new))), self.EE))
-            # e.assign(da.project(first_PK_stress(self.I + fe.grad(x_new))[0, 0], EE))
-
-            self.x_plot, self.d_plot = m_new.split()
-            self.x_plot.rename("u", "u")
-            self.d_plot.rename("d", "d")
- 
-            file_results.write(self.x_plot, i)
-            file_results.write(self.d_plot, i)
-            file_results.write(e, i)
-            file_results.write(self.map_plot, i)
-
-            vtkfile_u << self.x_plot
-            vtkfile_d << self.d_plot
-            self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
-            self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
-            force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
-            print("Force upper {}".format(force_upper))
-            self.delta_u_recorded.append(disp)
-            self.sigma_recorded.append(force_upper)
-            print('=================================================================================')
-
-        self.show_force_displacement()
-
+    def call_back(self):
+        pass
 
     def staggered_solve(self):
         self.U = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
@@ -225,9 +107,11 @@ class PDE(object):
             print('=================================================================================')
             print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
             print('=================================================================================')
+            self.i = i
+            self.call_back()
 
             if self.update_weak_form:
-                print("Update weak form due to change of map...")
+                print("Update weak form...")
                 self.build_weak_form_staggered()
                 J_u = fe.derivative(self.G_u, self.x_new, del_x)
                 J_d = fe.derivative(self.G_d, self.d_new, del_d) 
@@ -257,7 +141,6 @@ class PDE(object):
             newton_prm['maximum_iterations'] = 100 
             newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
-
            
             vtkfile_e_staggered = fe.File('data/pvd/{}/step{}/e.pvd'.format(self.case_name, i))
             vtkfile_u_staggered = fe.File('data/pvd/{}/step{}/u.pvd'.format(self.case_name, i))
@@ -323,7 +206,10 @@ class PDE(object):
 
             self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
             self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
-            force_upper = float(fe.assemble(self.sigma[1, 0]*self.ds(1)))
+            if self.case_name == 'half_crack_square':
+                force_upper = float(fe.assemble(self.sigma[0, 1]*self.ds(1)))
+            else:
+                force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
             print("Force upper {}".format(force_upper))
             self.delta_u_recorded.append(disp)
             self.sigma_recorded.append(force_upper)
@@ -350,6 +236,8 @@ class MappedPDE(PDE):
         self.finish_flag = False
         self.map_flag = True
         self.boundary_info = None
+        self.rho_default = 15.
+        self.d_integral_interval = 1.5*self.rho_default
 
 
     def compute_impact_radius_tip_point(self, P, direct_vec=None):

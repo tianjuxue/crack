@@ -132,56 +132,6 @@ class HalfCrackSqaure(MappedPDE):
         self.right = Right()
 
 
-    def set_bcs_monolithic(self):
-        self.upper.mark(self.boundaries, 1)
-
-        self.presLoad = da.Expression("t", t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.M.sub(0).sub(1), da.Constant(0),  self.lower)
-        BC_u_upper = da.DirichletBC(self.M.sub(0).sub(1), self.presLoad,  self.upper)
-        BC_u_corner = da.DirichletBC(self.M.sub(0).sub(0), da.Constant(0.0), self.corner, method='pointwise')
-        BC_d_notch = fe.DirichletBC(self.M.sub(1), da.Constant(1.), self.notch, method='pointwise')
-
-        self.BC = [BC_u_lower, BC_u_upper, BC_u_corner]
-        
-        # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
-        # BC_u_lower = da.DirichletBC(self.M.sub(0), da.Constant((0., 0.)), self.lower)
-        # BC_u_upper = da.DirichletBC(self.M.sub(0), self.presLoad, self.upper) 
-        # self.BC = [BC_u_lower, BC_u_upper] 
-
-
-    def build_weak_form_monolithic(self):
-        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
-        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii, self.map_type, self.boundary_info)  
-        self.grad_gamma = fe.diff(self.x, self.x_hat)
-
-        def mfem_grad_wrapper(grad):
-            def mfem_grad(u):
-                return fe.dot(grad(u), fe.inv(self.grad_gamma))
-            return mfem_grad
-
-        self.mfem_grad = mfem_grad_wrapper(fe.grad)
-
-        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-
-        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
-        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
-
-        G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
-            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
-
-        G_d = (self.H_new * self.zeta * g_d_prime(self.d_new, g_d) \
-            + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-        # G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(fe.grad(self.zeta), fe.grad(self.d_new)))) * fe.dx
-
-        G_d += 0.1 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
-
-        self.G = G_u + G_d
-
-
-
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
 
@@ -245,8 +195,6 @@ class HalfCrackSqaure(MappedPDE):
     def update_history(self):
         psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
         return psi_new
-
-
 
 
 def test(args):
