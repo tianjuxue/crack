@@ -13,10 +13,10 @@ from ..constitutive import *
 from ..mfem import map_function_ufl
 
 
-class HalfCrackSqaure(MappedPDE):
+class PureShear(MappedPDE):
     def __init__(self, args):
-        self.case_name = "half_crack_square"
-        super(HalfCrackSqaure, self).__init__(args)
+        self.case_name = "pure_shear"
+        super(PureShear, self).__init__(args)
 
         # self.displacements = np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.15, 101)))
         self.displacements = 1e-3*np.concatenate((np.linspace(0, 0.07, 11), np.linspace(0.07, 0.15, 101)))
@@ -33,12 +33,13 @@ class HalfCrackSqaure(MappedPDE):
 
         self.l0 = 2 * self.mesh.hmin()
 
-        self.map_type = 'linear'
-        if self.map_type == 'linear':
+        self.map_type = 'smooth'
+        if self.map_type == 'linear' or self.map_type == 'smooth':
             self.l0 /= 2
             # self.finish_flag = True
         elif self.map_type == 'identity':
             self.finish_flag = True
+
 
         self.rho_default = 15.
         self.d_integral_interval = 1.5*self.rho_default
@@ -198,9 +199,9 @@ class HalfCrackSqaure(MappedPDE):
 
 
 def test(args):
-    pde_hc = HalfCrackSqaure(args)
-    # pde_hc.monolithic_solve()
-    pde_hc.staggered_solve()
+    pde = PureShear(args)
+    # pde.monolithic_solve()
+    pde.staggered_solve()
     plt.show()
  
 

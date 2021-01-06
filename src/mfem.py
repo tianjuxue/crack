@@ -11,16 +11,52 @@ import ufl
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
 
+def smooth_combo(x):
+    if x < -1:
+        y = x
+    elif x < -1./2.:
+        y = -6 * x**3 - 14 * x**2 - 9 * x - 2
+    elif x < 1./2.:
+        y = 1./2. * x
+    elif x < 1:
+        y = -6 * x**3 + 14 * x**2 - 9 * x + 2
+    else:
+        y = x
+    return y
+
+
+def inverse_smooth_combo(y):
+    assert y >=0 and y <= 1
+    if y <= 1./4.:
+        return 2 * y
+    tol = 1e-10
+    start_x = y
+    end_x = 1.
+    assert smooth_combo(start_x) <= y and y <= smooth_combo(end_x)
+    abs_err = 1e10
+    while abs_err > tol:
+        mid_x = (start_x + end_x) / 2.
+        signed_error = smooth_combo(mid_x) - y
+        if signed_error > 0:
+            end_x = mid_x
+        else:
+            start_x = mid_x
+        abs_err = np.absolute(signed_error)
+    assert mid_x >= 0 and mid_x <= 1
+    return mid_x
+
+
 def ratio_function_ufl(ratio, map_type):
     if map_type == 'linear':
         return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
-        # Smoothed segements
-        # return fe.conditional(fe.lt(ratio, -1./2.), -6*ratio**3 - 14*ratio**2 - 9*ratio - 2, \
-        #        fe.conditional(fe.gt(ratio, 1./2.), -6*ratio**3 + 14*ratio**2 - 9*ratio + 2, 1./2.* ratio))
+
     elif map_type == 'power':
-        return ratio**1.5
+        return ratio**2
     elif map_type == 'identity':
         return ratio
+    elif map_type == 'smooth':
+        return fe.conditional(fe.lt(ratio, -1./2.), -6*ratio**3 - 14*ratio**2 - 9*ratio - 2, \
+               fe.conditional(fe.gt(ratio, 1./2.), -6*ratio**3 + 14*ratio**2 - 9*ratio + 2, 1./2.* ratio))       
     else:
         raise NotImplementedError("To be implemented")
 
@@ -29,7 +65,7 @@ def inverse_ratio_function_ufl(ratio, map_type):
     if map_type == 'linear':
         return fe.conditional(fe.lt(ratio, -1./4.), 2./3.* ratio - 1./3., fe.conditional(fe.gt(ratio, 1./4.), 2./3.* ratio + 1./3., 2. * ratio))
     elif map_type == 'power':
-        return ratio**(1/1.5)
+        return ratio**2
     elif map_type == 'identity':
         return ratio
     else:
@@ -48,6 +84,8 @@ def ratio_function_normal(ratio, map_type):
         return ratio**(1.5)
     elif map_type == 'identity':
         return ratio
+    elif map_type == 'smooth':
+        return smooth_combo(ratio)
     else:
         raise NotImplementedError("To be implemented")
 
@@ -64,6 +102,8 @@ def inverse_ratio_function_normal(ratio, map_type):
         return ratio**(1/1.5)
     elif map_type == 'identity':
         return ratio
+    elif map_type == 'smooth':
+        return inverse_smooth_combo(ratio)
     else:
         raise NotImplementedError("To be implemented")
 
@@ -350,57 +390,6 @@ class InterpolateExpression(fe.UserExpression):
  
     def value_shape(self):
         return (2,)
-
-
-
-# To be implemented...
-def map_function_blocks(x_hat, blocks, map_type):
-    if len(blocks) == 0:
-        return x_hat
-
-    x_hat = fe.variable(x_hat)
-    df, rho = distance_function_segments_ufl(x_hat, control_points, impact_radii)
-    grad_x_hat = fe.diff(df, x_hat)
-    delta_x_hat = fe.conditional(fe.gt(df, rho), fe.Constant((0., 0.)), grad_x_hat * (rho * ratio_function_ufl(df / rho, map_type) - df))
-    if boundary_info is None:
-        return delta_x_hat + x_hat
-    else: 
-        last_control_point = control_points[-1]
-        points, directions, rho_default = boundary_info
-        mid_point, mid_point1, mid_point2 = points
-        direct_vec, rotated_vec = directions
-        aux_control_point1 = last_control_point + rho_default * rotated_vec
-        aux_control_point2 = last_control_point - rho_default * rotated_vec
-
-        w1 = np.linalg.norm(mid_point1 - aux_control_point1)
-        w2 = np.linalg.norm(mid_point2 - aux_control_point2)
-        w0 = np.linalg.norm(mid_point - last_control_point)
-
-        assert np.absolute(2*w0 - w1 - w2) < 1e-5
-
-        AB = mid_point - last_control_point
-        AP = x_hat - last_control_point
-
-        x1 = AB[0]
-        y1 = AB[1]
-        x2 = AP[0]
-        y2 = AP[1]
-
-        mod = fe.sqrt(x1**2 + y1**2)
-        df_to_direct = (x1 * y2 - y1 * x2) / mod  # AB x AP
-        df_to_rotated = (x1 * x2 + y1 * y2) / mod
-
-        k1 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + df_to_direct * (w1 - w2))
-
-        new_df_to_direct = rho_default * ratio_function_ufl(df_to_direct / rho_default, map_type)
-
-        k2 = rho_default * (w1 + w2) / (rho_default * (w1 + w2) + new_df_to_direct * (w1 - w2))
-
-        new_df_to_rotated = df_to_rotated * k1 / k2
- 
-        x = fe.as_vector(last_control_point + direct_vec * new_df_to_rotated + rotated_vec * new_df_to_direct) 
-
-        return fe.conditional(fe.gt(df_to_rotated, 0), fe.conditional(fe.gt(np.absolute(df_to_direct), rho), x_hat, x), delta_x_hat + x_hat)
 
 
 def mfem():

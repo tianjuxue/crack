@@ -29,7 +29,7 @@ class Tip(MappedPDE):
 
         self.l0 = 10
 
-        self.map_type = 'identity'
+        self.map_type = 'smooth'
         self.finish_flag = True
         self.initialize_control_points_and_impact_radii()
 

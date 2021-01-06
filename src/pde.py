@@ -1,5 +1,4 @@
 import fenics as fe
-import dolfin_adjoint as da
 import sys
 import numpy as np
 import mshr
@@ -24,17 +23,13 @@ class PDE(object):
         self.preparation()
         self.build_mesh()
         self.set_boundaries()
-        self.l0 = 2 * self.mesh.hmin()
         self.staggered_tol = 1e-5
         self.staggered_maxiter = 1000 
-        self.monolithic_tol = 1e-5
-        self.monolithic_maxiter = 1000
         self.map_flag = False
         self.delta_u_recorded = []
         self.sigma_recorded = []
-        self.psi_cr = 0.01
         self.update_weak_form = True
-        self.presLoad = fe.Expression("t", t=0.0, degree=1) # Child class should override self.presLoad
+
 
     def preparation(self):
         # files = glob.glob('data/pvd/{}/*'.format(self.case_name))
@@ -69,9 +64,8 @@ class PDE(object):
         self.U = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
         self.W = fe.FunctionSpace(self.mesh, 'CG', 1) 
 
-        self.EE = fe.FunctionSpace(self.mesh, 'DG', 0) 
         self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
-        # self.WW = fe.FunctionSpace(self.mesh, 'DG', 0) 
+        self.EE = fe.TensorFunctionSpace(self.mesh, 'DG', 0) 
         self.MM = fe.VectorFunctionSpace(self.mesh, 'CG', 1)
 
         self.eta = fe.TestFunction(self.U)
@@ -82,17 +76,18 @@ class PDE(object):
         del_d = fe.TrialFunction(self.W)
         p = fe.TrialFunction(self.WW)
 
-        self.x_new = da.Function(self.U, name="u")
-        self.d_new = da.Function(self.W, name="d")
-        self.d_pre = da.Function(self.W)
+        self.x_new = fe.Function(self.U, name="u")
+        self.d_new = fe.Function(self.W, name="d")
+        self.d_pre = fe.Function(self.W)
+        self.x_pre = fe.Function(self.U)
 
-        x_old = da.Function(self.U)
-        d_old = da.Function(self.W) 
+        x_old = fe.Function(self.U)
+        d_old = fe.Function(self.W) 
 
-        self.H_old = da.Function(self.WW)
+        self.H_old = fe.Function(self.WW)
 
-        self.map_plot = da.Function(self.MM, name="m")
-        e = da.Function(self.EE, name="e")
+        self.map_plot = fe.Function(self.MM, name="m")
+        e = fe.Function(self.EE, name="e")
 
         file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
         file_results.parameters["functions_share_mesh"] = True
@@ -134,12 +129,12 @@ class PDE(object):
 
             newton_prm = solver_u.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 100 
-            newton_prm['absolute_tolerance'] = 1e-8
+            # newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
 
             newton_prm = solver_d.parameters['newton_solver']
             newton_prm['maximum_iterations'] = 100 
-            newton_prm['absolute_tolerance'] = 1e-8
+            # newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
            
             vtkfile_e_staggered = fe.File('data/pvd/{}/step{}/e.pvd'.format(self.case_name, i))
@@ -154,23 +149,29 @@ class PDE(object):
 
                 solver_u.solve()
 
-                # dolfin (2019.1.0) errornorm function has severe bugs not behave as expected
+                # # Remarks(Tianju): self.x_new.vector() does not behave as expected: producing nan values
+                # The following lines of codes cause issues
+                # We use an error measure similar in https://doi.org/10.1007/s10704-019-00372-y
+                # np_x_new = np.asarray(self.x_new.vector())
+                # np_d_new = np.asarray(self.d_new.vector())
+                # np_x_old = np.asarray(x_old.vector())
+                # np_d_old = np.asarray(d_old.vector())
+                # err_x = np.linalg.norm(np_x_new - np_x_old) / np.sqrt(len(np_x_new))
+                # err_d = np.linalg.norm(np_d_new - np_d_old) / np.sqrt(len(np_d_new))
+                # err = max(err_x, err_d)
+
+                # # Remarks(Tianju): dolfin (2019.1.0) errornorm function has severe bugs not behave as expected
                 # The bug seems to be fixed in later versions
                 # The following sometimes produces nonzero results in dolfin (2019.1.0)
                 # print(fe.errornorm(self.d_new, self.d_new, norm_type='l2'))
-                # We use another error measure similar in https://doi.org/10.1007/s10704-019-00372-y
 
-                np_x_new = np.asarray(self.x_new.vector())
-                np_d_new = np.asarray(self.d_new.vector())
-                np_x_old = np.asarray(x_old.vector())
-                np_d_old = np.asarray(d_old.vector())
-                err_x = np.linalg.norm(np_x_new - np_x_old) / np.sqrt(len(np_x_new))
-                err_d = np.linalg.norm(np_d_new - np_d_old) / np.sqrt(len(np_d_new))
-                err = max(err_x, err_d)
+                err_x = fe.errornorm(self.x_new, x_old, norm_type='l2')
+                err_d = fe.errornorm(self.d_new, d_old, norm_type='l2')
+                err = max(err_x, err_d) 
 
                 x_old.assign(self.x_new)
                 d_old.assign(self.d_new)
-                e.assign(fe.project(self.H_old, self.EE))
+                e.assign(fe.project(strain(self.mfem_grad(self.x_new)), self.EE))
 
                 print('---------------------------------------------------------------------------------')
                 print('>> iteration. {}, err_u = {:.5}, err_d = {:.5}, error = {:.5}'.format(iteration, err_x, err_d, err))
@@ -185,13 +186,16 @@ class PDE(object):
                     print('\n')
                     break
 
+
+                if self.solution_scheme == 'explicit':
+                    break
+
+
             fe.solve(a == L, self.H_old, [])      
 
-            # print("Updating H_old...")
             # self.d_pre.assign(self.d_new)
             # self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
-            # print("Finish updating H_old")
- 
+
             if self.map_flag:
                 self.update_map()
 
@@ -205,12 +209,12 @@ class PDE(object):
             vtkfile_d << self.d_new
 
             self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
-            self.sigma = cauchy_stress(strain(fe.grad(self.x_new)), self.psi)
-            if self.case_name == 'half_crack_square':
+            self.sigma = cauchy_stress(strain(self.mfem_grad(self.x_new)), self.psi)
+            if self.case_name == 'pure_shear':
                 force_upper = float(fe.assemble(self.sigma[0, 1]*self.ds(1)))
             else:
                 force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
-            print("Force upper {}".format(force_upper))
+            print("Force is {}".format(force_upper))
             self.delta_u_recorded.append(disp)
             self.sigma_recorded.append(force_upper)
 
@@ -226,6 +230,7 @@ class PDE(object):
         plt.tick_params(labelsize=14)
         plt.xlabel("Vertical displacement of top side", fontsize=14)
         plt.ylabel("Force on top side", fontsize=14)
+        plt.grid(True)
         fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
 
 
@@ -385,22 +390,32 @@ class MappedPDE(PDE):
         print('=================================================================================')
 
         def obj(x):
-            p = da.Constant(x)
+            p = fe.Constant(x)
             x_coo = fe.SpatialCoordinate(self.mesh)
             control_points = list(self.control_points)
             control_points.append(p)
             pseudo_radii = np.zeros(len(control_points))
             distance_field, _ = distance_function_segments_ufl(x_coo, control_points, pseudo_radii)
             d_artificial = fe.exp(-distance_field/self.l0)
-            L_tape = fe.assemble((self.d_new - d_artificial)**2 * fe.det(self.grad_gamma) * fe.dx)
+
+            d_clipped = fe.conditional(fe.gt(self.d_new, 0.5), self.d_new, 0.)
+
+
+            L_tape = fe.assemble((d_clipped - d_artificial)**2 * fe.det(self.grad_gamma) * fe.dx)
+
+            # L_tape = fe.assemble((self.d_new - d_artificial)**2 * fe.det(self.grad_gamma) * fe.dx)
             L = float(L_tape)
             return L
-
 
         if len(self.control_points) > 1:
             x_initial = self.control_points[-1] + (self.control_points[-1] - self.control_points[-2])
         elif len(self.control_points) == 1:
-            x_initial = np.array([self.length/2 + 1, self.height/2])
+            if self.case_name == 'half_crack_square':
+                x_initial = np.array([self.length/2 + 1, self.height/2])
+            elif self.case_name == 'L_shape':
+                x_initial = np.array([self.length/2 - 1, self.height/2 + 1])
+            else:
+                raise NotImplementedError("To be implemented!")
         else:
             raise NotImplementedError("To be implemented!")
 
@@ -411,10 +426,11 @@ class MappedPDE(PDE):
                            callback=None,
                            options=options)
 
-        print("Optimized x is {}".format(res.x))
-        print('=================================================================================')
-
         new_tip_point = map_function_normal(res.x, self.control_points, self.impact_radii, self.map_type, self.boundary_info)
+
+        print("Optimized x is {}".format(res.x))
+        print("New tip point is {}".format(new_tip_point))
+        print('=================================================================================')
 
         return new_tip_point
 
@@ -489,8 +505,12 @@ class MappedPDE(PDE):
 
 
     def update_map(self):
-        d_int = fe.assemble(self.d_new * fe.det(self.grad_gamma) * fe.dx)
-        print("d_int {}".format(float(d_int)))
+        d_clipped = fe.conditional(fe.gt(self.d_new, 0.5), self.d_new, 0.)        
+        d_int_full = fe.assemble(self.d_new * fe.det(self.grad_gamma) * fe.dx)
+        d_int = fe.assemble(d_clipped * fe.det(self.grad_gamma) * fe.dx)
+
+        print("d_int_clipped {}".format(float(d_int)))
+        print("d_int_full {}".format(float(d_int_full)))
 
         d_integral_interval_initial = 1
 

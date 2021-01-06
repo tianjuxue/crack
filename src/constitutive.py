@@ -13,7 +13,7 @@ def history(H_old, psi_new, psi_cr):
 # ---------------------------------------------------------------- 
 # Degradation functions
 def g_d(d):
-    degrad = (1 - d)**2;
+    degrad = (1 - d)**2 + 1e-10;
     return degrad 
 
 
@@ -78,9 +78,17 @@ def psi_plus_linear_elasticity_model_C(epsilon, lamda, mu):
     sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
     eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
     eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
-    tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
-    eigen_value_1_plus = (eigen_value_1 + np.absolute(eigen_value_1)) / 2
-    eigen_value_2_plus = (eigen_value_2 + np.absolute(eigen_value_2)) / 2
+
+    # tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
+    # eigen_value_1_plus = (eigen_value_1 + np.absolute(eigen_value_1)) / 2
+    # eigen_value_2_plus = (eigen_value_2 + np.absolute(eigen_value_2)) / 2
+
+
+    tr_epsilon_plus = fe.conditional(fe.gt(fe.tr(epsilon), 0.), fe.tr(epsilon), 0.)
+    eigen_value_1_plus = fe.conditional(fe.gt(eigen_value_1, 0.), eigen_value_1, 0.)
+    eigen_value_2_plus = fe.conditional(fe.gt(eigen_value_2, 0.), eigen_value_2, 0.)
+
+
     return lamda / 2 * tr_epsilon_plus**2 + mu * (eigen_value_1_plus**2 + eigen_value_2_plus**2)
 
 
@@ -88,12 +96,20 @@ def psi_minus_linear_elasticity_model_C(epsilon, lamda, mu):
     sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
     eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
     eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
-    tr_epsilon_minus = (fe.tr(epsilon) - np.absolute(fe.tr(epsilon))) / 2
-    eigen_value_1_minus = (eigen_value_1 - np.absolute(eigen_value_1)) / 2
-    eigen_value_2_minus = (eigen_value_2 - np.absolute(eigen_value_2)) / 2
+
+    # tr_epsilon_minus = (fe.tr(epsilon) - np.absolute(fe.tr(epsilon))) / 2
+    # eigen_value_1_minus = (eigen_value_1 - np.absolute(eigen_value_1)) / 2
+    # eigen_value_2_minus = (eigen_value_2 - np.absolute(eigen_value_2)) / 2
+
+    tr_epsilon_minus = fe.conditional(fe.lt(fe.tr(epsilon), 0.), fe.tr(epsilon), 0.)
+    eigen_value_1_minus = fe.conditional(fe.lt(eigen_value_1, 0.), eigen_value_1, 0.)
+    eigen_value_2_minus = fe.conditional(fe.lt(eigen_value_2, 0.), eigen_value_2, 0.)
+
+
     return lamda / 2 * tr_epsilon_minus**2 + mu * (eigen_value_1_minus**2 + eigen_value_2_minus**2)
 
 
+# TODO(Tianju): Collapse the three functions into one
 # ---------------------------------------------------------------- 
 # Cauchy stress
 def cauchy_stress_plus(epsilon, psi_plus):
