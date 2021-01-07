@@ -27,8 +27,9 @@ class PDE(object):
         self.staggered_maxiter = 1000 
         self.map_flag = False
         self.delta_u_recorded = []
-        self.sigma_recorded = []
+        self.force_recorded = []
         self.update_weak_form = True
+        self.display_intermediate_results = False
 
 
     def preparation(self):
@@ -41,9 +42,9 @@ class PDE(object):
         data_path_pvd = 'data/pvd/{}'.format(self.case_name)
         print("\nDelete data folder {}".format(data_path_pvd))
         shutil.rmtree(data_path_pvd, ignore_errors=True)
-        data_path_xdmf = 'data/xdmf/{}'.format(self.case_name)
-        print("\nDelete data folder {}".format(data_path_xdmf))
-        shutil.rmtree(data_path_xdmf, ignore_errors=True)
+        # data_path_xdmf = 'data/xdmf/{}'.format(self.case_name)
+        # print("\nDelete data folder {}".format(data_path_xdmf))
+        # shutil.rmtree(data_path_xdmf, ignore_errors=True)
 
 
     def set_boundaries(self):
@@ -57,7 +58,10 @@ class PDE(object):
     def update_history(self):
         return 0
 
-    def call_back(self):
+    def update_weak_form_due_to_Model_C_bug(self):
+        pass
+
+    def create_custom_xdmf_files(self):
         pass
 
     def staggered_solve(self):
@@ -89,6 +93,8 @@ class PDE(object):
         self.map_plot = fe.Function(self.MM, name="m")
         e = fe.Function(self.EE, name="e")
 
+        self.create_custom_xdmf_files() 
+
         file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
         file_results.parameters["functions_share_mesh"] = True
 
@@ -97,13 +103,12 @@ class PDE(object):
         vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
 
         for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
-
             print('\n')
             print('=================================================================================')
             print('>> Step {}, disp boundary condition = {} [mm]'.format(i, disp))
             print('=================================================================================')
             self.i = i
-            self.call_back()
+            self.update_weak_form_due_to_Model_C_bug()
 
             if self.update_weak_form:
                 print("Update weak form...")
@@ -149,6 +154,9 @@ class PDE(object):
 
                 solver_u.solve()
 
+                if self.solution_scheme == 'explicit':
+                    break
+
                 # # Remarks(Tianju): self.x_new.vector() does not behave as expected: producing nan values
                 # The following lines of codes cause issues
                 # We use an error measure similar in https://doi.org/10.1007/s10704-019-00372-y
@@ -186,11 +194,6 @@ class PDE(object):
                     print('\n')
                     break
 
-
-                if self.solution_scheme == 'explicit':
-                    break
-
-
             fe.solve(a == L, self.H_old, [])      
 
             # self.d_pre.assign(self.d_new)
@@ -216,23 +219,33 @@ class PDE(object):
                 force_upper = float(fe.assemble(self.sigma[1, 1]*self.ds(1)))
             print("Force is {}".format(force_upper))
             self.delta_u_recorded.append(disp)
-            self.sigma_recorded.append(force_upper)
+            self.force_recorded.append(force_upper)
 
             # if force_upper < 0.5 and i > 10:
             #     break
 
-        self.show_force_displacement()
+            if i %10 == 0:
+                self.show_force_displacement()
 
+            self.save_data_in_loop()
+
+        plt.ioff()
+        plt.show()
  
+
     def show_force_displacement(self):
-        fig = plt.figure()
-        plt.plot(self.delta_u_recorded, self.sigma_recorded, linestyle='--', marker='o', color='red')
+        fig = plt.figure(0)
+        plt.ion()
+        plt.plot(self.delta_u_recorded, self.force_recorded, linestyle='--', marker='o', color='red')
         plt.tick_params(labelsize=14)
         plt.xlabel("Vertical displacement of top side", fontsize=14)
         plt.ylabel("Force on top side", fontsize=14)
         plt.grid(True)
         fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
-
+        if self.display_intermediate_results:
+            plt.show()
+            plt.pause(0.001)
+            
 
 class MappedPDE(PDE):
     def __init__(self, args):
@@ -400,10 +413,9 @@ class MappedPDE(PDE):
 
             d_clipped = fe.conditional(fe.gt(self.d_new, 0.5), self.d_new, 0.)
 
-
             L_tape = fe.assemble((d_clipped - d_artificial)**2 * fe.det(self.grad_gamma) * fe.dx)
-
             # L_tape = fe.assemble((self.d_new - d_artificial)**2 * fe.det(self.grad_gamma) * fe.dx)
+
             L = float(L_tape)
             return L
 
@@ -525,8 +537,6 @@ class MappedPDE(PDE):
         else:
             if d_int - self.d_integrals[-1] > self.d_integral_interval:
                 update_flag = True
-
-        # update_flag = False
 
         if update_flag and not self.finish_flag:
             print('\n')

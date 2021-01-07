@@ -19,7 +19,7 @@ class PureTension(MappedPDE):
         self.solution_scheme = 'explicit'
         super(PureTension, self).__init__(args)
 
-        self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.5, 11), np.linspace(0.5, 0.7, 101)))
+        self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.59, 101), np.linspace(0.59, 0.59, 201)))
         # self.displacements = 1e-2*np.linspace(0.0, 0.7, 21)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
@@ -36,7 +36,9 @@ class PureTension(MappedPDE):
 
         print(self.mesh.hmax())
         print(self.mesh.hmin())
-        self.l0 = 2*(self.mesh.hmax() + self.mesh.hmin())
+
+        self.l0 = 0.03
+        
         print("self.l0 is {}".format(self.l0))
 
         self.map_type = 'identity'
@@ -63,7 +65,19 @@ class PureTension(MappedPDE):
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
         notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
 
-        self.mesh = mshr.generate_mesh(plate - notch, 100)
+        self.mesh = mshr.generate_mesh(plate - notch, 50)
+
+
+        for i in range(3):
+            cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
+            cell_markers.set_all(False)
+            for cell in fe.cells(self.mesh):
+                p = cell.midpoint()
+                if  p[0] > 9./20.*self.length and p[1] > 9/20.*self.height and p[1] < 11/20*self.height:
+                # if np.sqrt((p[0] - self.length/2.)**2 + (p[1] - self.height/2.)**2) < self.length/5.:
+                    cell_markers[cell] = True
+            self.mesh = fe.refine(self.mesh, cell_markers)
+
 
         length = self.length
         height = self.height
@@ -113,11 +127,9 @@ class PureTension(MappedPDE):
         # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
         # self.BC_d = []
 
-        # self.presLoad = fe.Expression("t", t=0.0, degree=1)
+        # self.presLoad = fe.Expression((0, "t"), t=0.0, degree=1)
         # BC_u_lower = fe.DirichletBC(self.U, fe.Constant((0., 0.)), self.lower)
-        # BC_u_upper = fe.DirichletBC(self.U.sub(1), self.presLoad, self.upper) 
-        # # BC_u_left = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.left)
-        # # BC_u_right = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.right)
+        # BC_u_upper = fe.DirichletBC(self.U, self.presLoad, self.upper) 
         # self.BC_u = [BC_u_lower, BC_u_upper] 
         # self.BC_d = []
 
@@ -166,6 +178,7 @@ class PureTension(MappedPDE):
 def test(args):
     pde = PureTension(args)
     pde.staggered_solve()
+    plt.ioff()
     plt.show()
  
 
