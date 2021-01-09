@@ -10,19 +10,20 @@ from pyadjoint.overloaded_type import create_overloaded_object
 from ..pde import MappedPDE
 from .. import arguments
 from ..constitutive import *
-from ..mfem import map_function_ufl
-
+from ..mfem import map_function_ufl, map_function_normal
+ 
 
 class ThreePointBending(MappedPDE):
     def __init__(self, args):
         self.case_name = "three_point_bending"
         self.solution_scheme = 'explicit'
-        self.local_refinement_iteration = 1
+        self.map_type = 'smooth'
+        self.local_refinement_iteration = 0
+
         super(ThreePointBending, self).__init__(args)
 
         self.displacements = -1e-1*np.concatenate((np.linspace(0, 0.5, 21),
-                                                   np.linspace(0.5, 0.55, 101), 
-                                                   np.linspace(0.55, 1.0, 101)))
+                                                   np.linspace(0.5, 0.8, 201)))
 
         # self.displacements = -1e-1*np.linspace(0.0, 1., 21)
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
@@ -35,13 +36,13 @@ class ThreePointBending(MappedPDE):
         # self.l0 = (self.mesh.hmin() + self.mesh.hmax())
         # self.l0 = 0.2
         # self.l0 = 2 * self.mesh.hmin()
-        self.l0 = 0.05
+        self.l0 = 0.08
 
         print(self.mesh.hmax())
         print(self.mesh.hmin())        
         print("self.l0 is {}".format(self.l0))
 
-        self.map_type = 'smooth'
+        
         if self.map_type == 'linear' or self.map_type == 'smooth':
             self.map_flag = True
         elif self.map_type == 'identity':
@@ -49,14 +50,21 @@ class ThreePointBending(MappedPDE):
         self.finish_flag = True
 
         self.rho_default = 15.
+
         self.initialize_control_points_and_impact_radii()
+
+
+        # for x_hat in self.mesh.coordinates():
+        #     x = map_function_normal(x_hat, self.control_points, self.impact_radii, 'smooth', self.boundary_info)
+        #     x_hat[0] = x[0]
+        #     x_hat[1] = x[1]
 
 
     def initialize_control_points_and_impact_radii(self):
         radius = np.sqrt( (self.notch_length/2.)**2 + self.notch_height**2 )
-        # self.control_points = np.array([[self.length/2., self.notch_height], [self.length/2., 2 * self.height]])
 
-        self.control_points = np.array([[self.length/2., self.notch_height], [self.length/2., self.height - radius]])
+        # self.control_points = np.array([[self.length/2., self.notch_height], [self.length/2., 2 * self.height]])
+        self.control_points = np.array([[self.length/2., self.notch_height], [self.length/2., self.height - 1.2*radius]])
 
         self.impact_radii = np.array([radius, radius])
 
@@ -73,22 +81,26 @@ class ThreePointBending(MappedPDE):
                   fe.Point(self.length/2. + self.notch_length/2., 0.),
                   fe.Point(self.length, 0.),
                   fe.Point(self.length, self.height),
+                  fe.Point(self.length/2. + self.notch_length/2., self.height),
                   fe.Point(self.length/2., self.height),
+                  fe.Point(self.length/2. - self.notch_length/2., self.height),
                   fe.Point(0., self.height)])
 
-        self.mesh = mshr.generate_mesh(domain, 50)
+        self.mesh = mshr.generate_mesh(domain, 100)
 
         for i in range(self.local_refinement_iteration):
             cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
             cell_markers.set_all(False)
             for cell in fe.cells(self.mesh):
                 p = cell.midpoint()
-                if  p[0] > 14./32.*self.length and p[0] < 18./32.*self.length:
+                if  p[0] > 14./32.*self.length and p[0] < 18./32.*self.length and p[1] < self.height - self.notch_height:
                     cell_markers[cell] = True
             self.mesh = fe.refine(self.mesh, cell_markers)
 
+ 
         length = self.length
         height = self.height
+        notch_length = self.notch_length
 
         class Upper(fe.SubDomain):
             def inside(self, x, on_boundary):
@@ -106,7 +118,8 @@ class ThreePointBending(MappedPDE):
 
         class MiddlePoint(fe.SubDomain):
             def inside(self, x, on_boundary):                    
-                return fe.near(x[0], length/2.) and fe.near(x[1], height)
+                # return fe.near(x[0], length/2.) and fe.near(x[1], height)
+                return x[0] > length/2. - notch_length/2.  and  x[0] < length/2. + notch_length/2. and fe.near(x[1], height)
 
         self.upper = Upper()
         self.left = LeftCorner()
@@ -115,7 +128,7 @@ class ThreePointBending(MappedPDE):
  
 
     def set_bcs_staggered(self):
-        self.upper.mark(self.boundaries, 1)
+        self.middle.mark(self.boundaries, 1)
         self.presLoad = fe.Expression("t", t=0.0, degree=1)
         BC_u_left = fe.DirichletBC(self.U, fe.Constant((0., 0.)), self.left, method='pointwise')
         BC_u_right = fe.DirichletBC(self.U.sub(1), fe.Constant(0.), self.right, method='pointwise')
@@ -126,8 +139,8 @@ class ThreePointBending(MappedPDE):
 
 def test(args):
     pde = ThreePointBending(args)
-    pde.staggered_solve()
-    # pde.post_processing()
+    # pde.staggered_solve()
+    pde.post_processing()
  
 
 if __name__ == '__main__':

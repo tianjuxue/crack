@@ -32,7 +32,6 @@ class MappedPDE(object):
         self.force_degraded = []
         self.force_plus = []
         self.force_minus = []
-        self.force_total = []
 
         self.update_weak_form = True
         self.display_intermediate_results = True
@@ -222,12 +221,12 @@ class MappedPDE(object):
                 force_upper = float(fe.assemble(self.sigma[0, 1] * self.ds(1)))
             elif self.case_name == 'three_point_bending':
                 # force_upper = float(fe.assemble(self.sigma[1, 1] * fe.det(self.grad_gamma) * self.ds(1))) # Not a general form, but correct in this case
+
                 f_sum = float(fe.assemble(fe.dot(self.sigma_sum, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
                 f_degraded = float(fe.assemble(fe.dot(self.sigma_degraded, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
-                f_plus = float(fe.assemble(fe.dot(self.sigma_plus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
-                f_minus = float(fe.assemble(fe.dot(self.sigma_minus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1)))
-                f_total = float(fe.assemble(fe.dot(self.sigma, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1)))
-
+ 
+                # f_plus = float(fe.assemble(fe.dot(self.sigma_plus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
+                # f_minus = float(fe.assemble(fe.dot(self.sigma_minus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1)))
             else:
                 force_upper = float(fe.assemble(self.sigma[1, 1] * self.ds(1)))
             # print("Force is {}".format(force_upper))
@@ -235,9 +234,8 @@ class MappedPDE(object):
             self.delta_u_recorded.append(np.absolute(disp))
             self.force_recorded.append(f_sum)
             self.force_degraded.append(f_degraded)
-            self.force_plus.append(f_plus)
-            self.force_minus.append(f_minus)
-            self.force_total.append(f_total)
+            # self.force_plus.append(f_plus)
+            # self.force_minus.append(f_minus)
 
             # if force_upper < 0.5 and i > 10:
             #     break
@@ -304,9 +302,8 @@ class MappedPDE(object):
         plt.ion()
         plt.plot(self.delta_u_recorded, self.force_recorded, linestyle='--', marker='o', color='red', label='sum')
         plt.plot(self.delta_u_recorded, self.force_degraded, linestyle='--', marker='o', color='blue', label='degraded')
-        plt.plot(self.delta_u_recorded, self.force_plus, linestyle='--', marker='o', color='yellow', label='plus')
-        plt.plot(self.delta_u_recorded, self.force_minus, linestyle='--', marker='o', color='green', label='minus')
-        plt.plot(self.delta_u_recorded, self.force_total, linestyle='--', marker='o', color='black', label='total')
+        # plt.plot(self.delta_u_recorded, self.force_plus, linestyle='--', marker='o', color='yellow', label='plus')
+        # plt.plot(self.delta_u_recorded, self.force_minus, linestyle='--', marker='o', color='green', label='minus')
         # plt.legend(fontsize=14)
         plt.tick_params(labelsize=14)
         plt.xlabel("Vertical displacement of top side", fontsize=14)
@@ -326,7 +323,7 @@ class MappedPDE(object):
 
     def save_data_in_loop(self):
         np.save('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 
-            self.local_refinement_iteration, self.map_flag), self.force_recorded)
+            self.local_refinement_iteration, self.map_flag), self.force_degraded)
         np.save('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 
             self.local_refinement_iteration, self.map_flag), self.delta_u_recorded)
 
@@ -355,9 +352,9 @@ class MappedPDE(object):
         # plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='--', marker='o', color='yellow', label='fine')
         # plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='--', marker='o', color='red', label='mfem')
 
-        plt.plot(delta_u_recorded_coarse, force_recorded_coarse, linestyle='-', linewidth=4, color='blue', label='coarse')
-        plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='-', linewidth=4, color='yellow', label='fine')
-        plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='-', linewidth=4, color='red', label='mfem')
+        plt.plot(delta_u_recorded_coarse, np.absolute(force_recorded_coarse), linestyle='-', linewidth=4, color='blue', label='coarse')
+        plt.plot(delta_u_recorded_fine, np.absolute(force_recorded_fine), linestyle='-', linewidth=4, color='yellow', label='fine')
+        plt.plot(delta_u_recorded_mfem, np.absolute(force_recorded_mfem), linestyle='-', linewidth=4, color='red', label='mfem')
 
         plt.legend(fontsize=14)
         plt.tick_params(labelsize=14)
