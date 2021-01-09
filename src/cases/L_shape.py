@@ -74,13 +74,13 @@ class LShape(MappedPDE):
 
         if self.map_type == 'linear' or self.map_type == 'smooth':
             self.map_flag = True
-            self.local_refinement_iteration = 0
         elif self.map_type == 'identity':
             self.finish_flag = True
             self.map_flag = False
 
         self.rho_default = 150.
-        self.d_integral_interval = 3*self.rho_default
+        # self.d_integral_interval = 3*self.rho_default
+        self.d_integral_interval = 0.02 * self.rho_default**2
         self.initialize_control_points_and_impact_radii()
 
 
@@ -148,101 +148,10 @@ class LShape(MappedPDE):
         self.BC_u = [BC_u_lower, BC_u_segment]
         self.BC_d = []
 
-  
-    def build_weak_form_staggered(self): 
-        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
-        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii, self.map_type, self.boundary_info)  
-        self.grad_gamma = fe.diff(self.x, self.x_hat)
-
-        def mfem_grad_wrapper(grad):
-            def mfem_grad(u):
-                return fe.dot(grad(u), fe.inv(self.grad_gamma))
-            return mfem_grad
-
-        self.mfem_grad = mfem_grad_wrapper(fe.grad)
-
-        # A special note (Tianju): We hope to use Model C, but Newton solver fails without the initial guess by Model A 
-        if self.i < 2:
-            self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-            self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-        else:
-            self.psi_plus = partial(psi_plus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-            self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-            print("use model C")
-
-        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
-        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
-
-        self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
-            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
-
-        if self.solution_scheme == 'explicit':
-            self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-                    + self.G_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-        else:
-            self.G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
-                    + self.G_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-
-    def update_history(self):
-        psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
-        return psi_new
-
-
-    def update_weak_form_due_to_Model_C_bug(self):
-        if self.i < 3:
-            self.update_weak_form = True
-
-
-    def create_custom_xdmf_files(self):
-        self.file_results_L_shape = fe.XDMFFile('data/xdmf/{}/u_refine_{}_mfem_{}.xdmf'.format(self.case_name, 
-            self.local_refinement_iteration, self.map_flag))
-        self.file_results_L_shape.parameters["functions_share_mesh"] = True
-
-
-    def save_data_in_loop(self):
-        np.save('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 
-            self.local_refinement_iteration, self.map_flag), self.force_recorded)
-        np.save('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 
-            self.local_refinement_iteration, self.map_flag), self.delta_u_recorded)
-
-        self.file_results_L_shape.write(self.x_new, self.i)
-        self.file_results_L_shape.write(self.d_new, self.i)
-        self.file_results_L_shape.write(self.map_plot, self.i)
-
-
-    def post_processing(self):
-        delta_u_recorded_coarse = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
-        force_recorded_coarse = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
-
-        delta_u_recorded_fine = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
-        force_recorded_fine = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
-
-        delta_u_recorded_mfem = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
-        force_recorded_mfem = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
-
-        fig = plt.figure(0)
-        # plt.plot(delta_u_recorded_coarse, force_recorded_coarse, linestyle='--', marker='o', color='blue', label='coarse')
-        # plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='--', marker='o', color='yellow', label='fine')
-        # plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='--', marker='o', color='red', label='mfem')
-
-        plt.plot(delta_u_recorded_coarse, force_recorded_coarse, linestyle='-', linewidth=4, color='blue', label='coarse')
-        plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='-', linewidth=4, color='yellow', label='fine')
-        plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='-', linewidth=4, color='red', label='mfem')
-
-        plt.legend(fontsize=14)
-        plt.tick_params(labelsize=14)
-        plt.xlabel("Vertical displacement of top side", fontsize=14)
-        plt.ylabel("Force on top side", fontsize=14)
-        plt.grid(True)
-        plt.show()
-
 
 def test(args):
     pde = LShape(args)
-
     # pde.staggered_solve()
-
     pde.post_processing()
  
 

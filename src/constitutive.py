@@ -41,7 +41,7 @@ def psi_plus_linear_elasticity_model_A(epsilon, lamda, mu):
 
 
 def psi_minus_linear_elasticity_model_A(epsilon, lamda, mu):
-    return 0
+    return 0.
 
 
 # ----------------------------------------------------------------

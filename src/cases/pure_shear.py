@@ -16,33 +16,35 @@ from ..mfem import map_function_ufl
 class PureShear(MappedPDE):
     def __init__(self, args):
         self.case_name = "pure_shear"
+        self.solution_scheme = 'explicit'
+        self.local_refinement_iteration = 1
         super(PureShear, self).__init__(args)
 
-        # self.displacements = np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.15, 101)))
-        self.displacements = 1e-3*np.concatenate((np.linspace(0, 0.07, 11), np.linspace(0.07, 0.15, 101)))
-        # self.displacements = 1e-3*np.linspace(0.0, 0.3, 51)
+        self.displacements = 1e-1*np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.16, 301)))
+        # self.displacements = 1e-1*np.linspace(0.0, 0.15, 51)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
  
-        self.psi_cr = 1e-7
+        self.mu = 80.77        
+        self.lamda = 121.15
+        self.G_c = 2.7*1e-3
+        self.psi_cr = 0.
 
-        self.E = 1e5
-        self.nu = 0.3
-        self.mu = self.E / (2 * (1 + self.nu))
-        self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
+        self.l0 = 0.02
+        print(self.mesh.hmax())
+        print(self.mesh.hmin())        
+        print("self.l0 is {}".format(self.l0))
 
-        self.l0 = 2 * self.mesh.hmin()
+        self.map_type = 'identity'
 
-        self.map_type = 'smooth'
         if self.map_type == 'linear' or self.map_type == 'smooth':
-            self.l0 /= 2
-            # self.finish_flag = True
+            self.map_flag = True
         elif self.map_type == 'identity':
             self.finish_flag = True
+            self.map_flag = False
 
-
-        self.rho_default = 15.
-        self.d_integral_interval = 1.5*self.rho_default
+        self.rho_default = 0.14
+        self.d_integral_interval = 0.1 * self.rho_default**2
         self.initialize_control_points_and_impact_radii()
 
 
@@ -53,44 +55,17 @@ class PureShear(MappedPDE):
         for new_tip_point in control_points:
             self.compute_impact_radii(new_tip_point)
 
-        # self.control_points = np.asarray([[self.length/2, self.height/2], [self.length, self.height/2]])
-        # self.impact_radii = np.array([self.height/4, self.height/4])
-
-        # rho_default = 25. / np.sqrt(5) * 2 
-        # self.control_points = np.array([[50., 50.], [62.5, 25.]])
-        # self.impact_radii = np.array([rho_default, rho_default])
-
-        # mid_point = np.array([75., 0.])
-        # mid_point1 = np.array([100., 0.])
-        # mid_point2 = np.array([50., 0.])
-        # points = [mid_point, mid_point1, mid_point2]
-        # direct_vec = np.array([1., -2])
-        # rotated_vec = np.array([2., 1.])
-
-        # direct_vec /= np.linalg.norm(direct_vec)
-        # rotated_vec /= np.linalg.norm(rotated_vec)
-
-        # directions = [direct_vec, rotated_vec]
-        # self.boundary_info = [points, directions, rho_default]
-
 
     def build_mesh(self):
-        self.length = 100
-        self.height = 100
-        self.notch_length = 6
-
-        plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
-        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1), fe.Point(0, self.height / 2 - 1), fe.Point(self.notch_length, self.height / 2)])
-        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
-        # notch = mshr.Polygon([fe.Point(self.length / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 - 1e-10), \
-        #                       fe.Point(self.length * 3 / 4, self.height / 2), fe.Point(self.length / 2, self.height / 2 + 1e-10)])
-        self.mesh = mshr.generate_mesh(plate - notch, 50)
-
-        # self.mesh = da.RectangleMesh(fe.Point(0, 0), fe.Point(self.length, self.height), 40, 40, diagonal="crossed")
+        self.length = 1.
+        self.height = 1.
  
+        plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
+        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
 
-        # Add dolfin-adjoint dependency
-        self.mesh  = create_overloaded_object(self.mesh)
+        resolution = 50 if self.local_refinement_iteration == 0 else 100
+
+        self.mesh = mshr.generate_mesh(plate - notch, resolution)
 
         length = self.length
         height = self.height
@@ -115,43 +90,21 @@ class PureShear(MappedPDE):
             def inside(self, x, on_boundary):                    
                 return fe.near(x[0], 0) and fe.near(x[1], 0)
 
-        class Notch(fe.SubDomain):
-            def inside(self, x, on_boundary):
-                return  fe.near(x[1], height / 2) and x[0] < length / 2
-
-
-        # class Notch(fe.SubDomain):
-        #     def inside(self, x, on_boundary):
-        #         return  x[1] < height / 2 +  height / 40 and x[1] > height / 2 -  height / 40  and x[0] < length / 2
-
-
         self.lower = Lower()
         self.upper = Upper()
         self.corner = Corner()
-        self.notch = Notch()
         self.left = Left()
         self.right = Right()
 
 
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
-
-        # self.presLoad = da.Expression("t", t=0.0, degree=1)
-        # BC_u_lower = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.lower)
-        # BC_u_upper = da.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        # BC_u_corner = da.DirichletBC(self.U.sub(0), da.Constant(0.0), self.corner, method='pointwise')
-        # BC_d_notch = fe.DirichletBC(self.W, fe.Constant(1.), self.notch, method='pointwise')
-        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
-        # self.BC_d = []
-
-        # self.presLoad = da.Expression((0, "t"), t=0.0, degree=1)
+ 
+        # self.presLoad = da.Expression(("t", 0.), t=0.0, degree=1)
         # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
-        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
-        # BC_u_left = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.left)
-        # BC_u_right = da.DirichletBC(self.U.sub(0), da.Constant(0),  self.right)
-        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
+        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper)
+        # self.BC_u = [BC_u_lower, BC_u_upper] 
         # self.BC_d = []
-
 
         self.presLoad = da.Expression(("t", 0), t=0.0, degree=1)
         BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
@@ -162,47 +115,10 @@ class PureShear(MappedPDE):
         self.BC_d = []
 
 
-    def build_weak_form_staggered(self): 
-        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
-        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii, self.map_type, self.boundary_info)  
-        self.grad_gamma = fe.diff(self.x, self.x_hat)
-
-        def mfem_grad_wrapper(grad):
-            def mfem_grad(u):
-                return fe.dot(grad(u), fe.inv(self.grad_gamma))
-            return mfem_grad
-
-        self.mfem_grad = mfem_grad_wrapper(fe.grad)
-
-        self.psi_plus = partial(psi_plus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-        self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-
-        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
-        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
-
-        self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
-            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
-
-        self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-                + 2 * self.psi_cr * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-        # g_c = 1e-6
-        # self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-        #     + g_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-        # self.G_d += 0.5 * (self.d_new - self.d_pre) * self.zeta * fe.det(self.grad_gamma) * fe.dx
-
-
-    def update_history(self):
-        psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
-        return psi_new
-
-
 def test(args):
     pde = PureShear(args)
-    # pde.monolithic_solve()
-    pde.staggered_solve()
-    plt.show()
+    # pde.staggered_solve()
+    pde.post_processing()
  
 
 if __name__ == '__main__':

@@ -17,6 +17,7 @@ class PureTension(MappedPDE):
     def __init__(self, args):
         self.case_name = "pure_tension"
         self.solution_scheme = 'explicit'
+        self.local_refinement_iteration = 0
         super(PureTension, self).__init__(args)
 
         self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.59, 101), np.linspace(0.59, 0.59, 201)))
@@ -30,31 +31,24 @@ class PureTension(MappedPDE):
         self.psi_cr = 0.
 
         # self.l0 = 5 * (self.mesh.hmin() + self.mesh.hmax())
-        # self.l0 = 2 * (self.mesh.hmin() + self.mesh.hmax())
-
-        self.l0 = 0.04780085687755729/2
-
-        print(self.mesh.hmax())
-        print(self.mesh.hmin())
-
         self.l0 = 0.03
-        
+        print(self.mesh.hmax())
+        print(self.mesh.hmin())        
         print("self.l0 is {}".format(self.l0))
 
         self.map_type = 'identity'
-
         if self.map_type == 'linear' or self.map_type == 'smooth':
-            self.l0 /= 2
-
+            self.map_flag = True
+        elif self.map_type == 'identity':
+            self.map_flag = False
         self.finish_flag = True
 
         self.rho_default = 15.
-        self.d_integral_interval = 1.5*self.rho_default
         self.initialize_control_points_and_impact_radii()
 
 
     def initialize_control_points_and_impact_radii(self):
-        self.control_points = np.array([[self.length/2., self.height/2.], [self.length, self.height/2.]])
+        self.control_points = np.array([[self.length/2., self.height/2.], [2 * self.length, self.height/2.]])
         self.impact_radii = np.array([self.height/4, self.height/4])
 
 
@@ -65,19 +59,9 @@ class PureTension(MappedPDE):
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
         notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
 
-        self.mesh = mshr.generate_mesh(plate - notch, 50)
+        resolution = 50 if self.local_refinement_iteration == 0 else 100
 
-
-        for i in range(3):
-            cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
-            cell_markers.set_all(False)
-            for cell in fe.cells(self.mesh):
-                p = cell.midpoint()
-                if  p[0] > 9./20.*self.length and p[1] > 9/20.*self.height and p[1] < 11/20*self.height:
-                # if np.sqrt((p[0] - self.length/2.)**2 + (p[1] - self.height/2.)**2) < self.length/5.:
-                    cell_markers[cell] = True
-            self.mesh = fe.refine(self.mesh, cell_markers)
-
+        self.mesh = mshr.generate_mesh(plate - notch, resolution)
 
         length = self.length
         height = self.height
@@ -134,52 +118,10 @@ class PureTension(MappedPDE):
         # self.BC_d = []
 
 
-    def build_weak_form_staggered(self): 
-        self.x_hat = fe.variable(fe.SpatialCoordinate(self.mesh))
-        self.x = map_function_ufl(self.x_hat, self.control_points, self.impact_radii, self.map_type, self.boundary_info)  
-        self.grad_gamma = fe.diff(self.x, self.x_hat)
-
-        def mfem_grad_wrapper(grad):
-            def mfem_grad(u):
-                return fe.dot(grad(u), fe.inv(self.grad_gamma))
-            return mfem_grad
-
-        self.mfem_grad = mfem_grad_wrapper(fe.grad)
-
-        # A special note (Tianju): We hope to use Model C, but Newton solver fails without the initial guess by Model A 
-        if self.i < 2:
-            self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-            self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-        else:
-            self.psi_plus = partial(psi_plus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-            self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
-            print("use model C")
-
-        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
-        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
-
-        self.G_u = (g_d(self.d_new) * fe.inner(sigma_plus, strain(self.mfem_grad(self.eta))) \
-            + fe.inner(sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
-
-        if self.solution_scheme == 'explicit':
-            self.G_d = (self.H_old * self.zeta * g_d_prime(self.d_new, g_d) \
-                    + self.G_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-            # self.G_d = (self.psi_plus(strain(self.mfem_grad(self.x_new))) * self.zeta * g_d_prime(self.d_new, g_d) \
-            #         + self.G_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-        else:
-            self.G_d = (history(self.H_old, self.psi_plus(strain(self.mfem_grad(self.x_new))), self.psi_cr) * self.zeta * g_d_prime(self.d_new, g_d) \
-                    + self.G_c / self.l0 * (self.zeta * self.d_new + self.l0**2 * fe.inner(self.mfem_grad(self.zeta), self.mfem_grad(self.d_new)))) * fe.det(self.grad_gamma) * fe.dx
-
-    def update_history(self):
-        psi_new = self.psi_plus(strain(self.mfem_grad(self.x_new)))  
-        return psi_new
-
-
 def test(args):
     pde = PureTension(args)
-    pde.staggered_solve()
-    plt.ioff()
-    plt.show()
+    # pde.staggered_solve()
+    pde.post_processing()
  
 
 if __name__ == '__main__':
