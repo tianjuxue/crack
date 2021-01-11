@@ -25,19 +25,15 @@ class MappedPDE(object):
         self.set_boundaries()
         self.staggered_tol = 1e-5
         self.staggered_maxiter = 1000 
-        self.map_flag = False
-        self.delta_u_recorded = []
 
-        self.force_recorded = []
+        self.delta_u_recorded = []
+        self.force_full = []
         self.force_degraded = []
-        self.force_plus = []
-        self.force_minus = []
 
         self.update_weak_form = True
-        self.display_intermediate_results = True
+        self.display_intermediate_results = False
         self.d_integrals = [0.]
         self.finish_flag = False
-        self.map_flag = True
         self.boundary_info = None
         self.rho_default = 15.
         self.d_integral_interval = 1.5*self.rho_default
@@ -113,18 +109,19 @@ class MappedPDE(object):
             self.update_weak_form_due_to_Model_C_bug()
 
             if self.update_weak_form:
+                self.set_bcs_staggered()
                 print("Update weak form...")
                 self.build_weak_form_staggered()
+
                 J_u = fe.derivative(self.G_u, self.x_new, del_x)
                 J_d = fe.derivative(self.G_d, self.d_new, del_d) 
-
-                self.set_bcs_staggered()
                 p_u = fe.NonlinearVariationalProblem(self.G_u, self.x_new, self.BC_u, J_u)
                 p_d  = fe.NonlinearVariationalProblem(self.G_d,  self.d_new, self.BC_d, J_d)
                 solver_u = fe.NonlinearVariationalSolver(p_u)
                 solver_d  = fe.NonlinearVariationalSolver(p_d)
                 self.update_weak_form = False
 
+                print("Update history weak form")
                 a = p * q * fe.dx
                 L = history(self.H_old, self.update_history(), self.psi_cr) * q * fe.dx
 
@@ -197,14 +194,16 @@ class MappedPDE(object):
                     print('\n')
                     break
 
+            print("L2 projection to update the history function...")
             fe.solve(a == L, self.H_old, [])      
 
             # self.d_pre.assign(self.d_new)
             # self.H_old.assign(fe.project(history(self.H_old, self.update_history(), self.psi_cr), self.WW))
 
-            if self.map_flag:
+            if self.map_flag and not self.finish_flag:
                 self.update_map()
 
+            print("Save files...")
             file_results.write(e, i)
             file_results.write(self.x_new, i)
             file_results.write(self.d_new, i)
@@ -213,40 +212,38 @@ class MappedPDE(object):
             vtkfile_e << e
             vtkfile_u << self.x_new
             vtkfile_d << self.d_new
- 
-            self.sigma_sum = self.sigma_plus + self.sigma_minus
-            self.sigma_degraded = g_d(self.d_new) * self.sigma_plus + self.sigma_minus
 
+            # Assume boundary is not affected by the map. 
+            # There's no need to use the mfem_grad wrapper so that fe.grad is used for speed-up
+            sigma = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi)
+            sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
+            sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
+            sigma_degraded = g_d(self.d_new) * sigma_plus + sigma_minus
+
+            print("Compute forces...")
             if self.case_name == 'pure_shear':
-                force_upper = float(fe.assemble(self.sigma[0, 1] * self.ds(1)))
-            elif self.case_name == 'three_point_bending':
-                # force_upper = float(fe.assemble(self.sigma[1, 1] * fe.det(self.grad_gamma) * self.ds(1))) # Not a general form, but correct in this case
-
-                f_sum = float(fe.assemble(fe.dot(self.sigma_sum, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
-                f_degraded = float(fe.assemble(fe.dot(self.sigma_degraded, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
- 
-                # f_plus = float(fe.assemble(fe.dot(self.sigma_plus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1))) 
-                # f_minus = float(fe.assemble(fe.dot(self.sigma_minus, self.normal)[1] * fe.det(self.grad_gamma) * self.ds(1)))
+                f_full = float(fe.assemble(sigma[0, 1] * self.ds(1)))
+                f_degraded = float(fe.assemble(sigma_degraded[0, 1] * self.ds(1)))
             else:
-                force_upper = float(fe.assemble(self.sigma[1, 1] * self.ds(1)))
-            # print("Force is {}".format(force_upper))
-            # print("Force degraded is {}".format(force_degraded))
-            self.delta_u_recorded.append(np.absolute(disp))
-            self.force_recorded.append(f_sum)
+                f_full = float(fe.assemble(sigma[1, 1] * self.ds(1)))
+                f_degraded = float(fe.assemble(sigma_degraded[1, 1] * self.ds(1)))
+            print("Force full is {}".format(f_full))
+            print("Force degraded is {}".format(f_degraded))
+            self.delta_u_recorded.append(disp)
+            self.force_full.append(f_full)
             self.force_degraded.append(f_degraded)
-            # self.force_plus.append(f_plus)
-            # self.force_minus.append(f_minus)
 
             # if force_upper < 0.5 and i > 10:
             #     break
 
-            if i % 10 == 0:
+            if self.display_intermediate_results and i % 10 == 0:
                 self.show_force_displacement()
 
             self.save_data_in_loop()
 
-        plt.ioff()
-        plt.show()
+        if self.display_intermediate_results:
+            plt.ioff()
+            plt.show()
  
 
     def build_weak_form_staggered(self): 
@@ -264,7 +261,7 @@ class MappedPDE(object):
         # A special note (Tianju): We hope to use Model C, but Newton solver fails without the initial guess by Model A 
         if self.i < 2:
             self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-            self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
+            self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
         else:
             self.psi_plus = partial(psi_plus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
             self.psi_minus = partial(psi_minus_linear_elasticity_model_C, lamda=self.lamda, mu=self.mu)
@@ -274,7 +271,9 @@ class MappedPDE(object):
 
         self.sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
         self.sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
-        self.sigma = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi)
+
+        # self.sigma = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi)
+        # self.sigma_degraded = g_d(self.d_new) * self.sigma_plus + self.sigma_minus
 
         self.G_u = (g_d(self.d_new) * fe.inner(self.sigma_plus, strain(self.mfem_grad(self.eta))) \
             + fe.inner(self.sigma_minus, strain(self.mfem_grad(self.eta)))) * fe.det(self.grad_gamma) * fe.dx
@@ -300,19 +299,16 @@ class MappedPDE(object):
     def show_force_displacement(self):
         fig = plt.figure(0)
         plt.ion()
-        plt.plot(self.delta_u_recorded, self.force_recorded, linestyle='--', marker='o', color='red', label='sum')
+        plt.plot(self.delta_u_recorded, self.force_full, linestyle='--', marker='o', color='red', label='full')
         plt.plot(self.delta_u_recorded, self.force_degraded, linestyle='--', marker='o', color='blue', label='degraded')
-        # plt.plot(self.delta_u_recorded, self.force_plus, linestyle='--', marker='o', color='yellow', label='plus')
-        # plt.plot(self.delta_u_recorded, self.force_minus, linestyle='--', marker='o', color='green', label='minus')
         # plt.legend(fontsize=14)
         plt.tick_params(labelsize=14)
         plt.xlabel("Vertical displacement of top side", fontsize=14)
         plt.ylabel("Force on top side", fontsize=14)
         plt.grid(True)
         fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
-        if self.display_intermediate_results:
-            plt.show()
-            plt.pause(0.001)
+        plt.show()
+        plt.pause(0.001)
             
 
     def create_custom_xdmf_files(self):
@@ -322,7 +318,9 @@ class MappedPDE(object):
 
 
     def save_data_in_loop(self):
-        np.save('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 
+        np.save('data/numpy/{}/force_full_refine_{}_mfem_{}.npy'.format(self.case_name, 
+            self.local_refinement_iteration, self.map_flag), self.force_full)
+        np.save('data/numpy/{}/force_degraded_refine_{}_mfem_{}.npy'.format(self.case_name, 
             self.local_refinement_iteration, self.map_flag), self.force_degraded)
         np.save('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 
             self.local_refinement_iteration, self.map_flag), self.delta_u_recorded)
@@ -339,34 +337,52 @@ class MappedPDE(object):
 
     def post_processing(self):
         delta_u_recorded_coarse = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
-        force_recorded_coarse = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
+        force_full_coarse = np.load('data/numpy/{}/force_full_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
+        force_degraded_coarse = np.load('data/numpy/{}/force_degraded_refine_{}_mfem_{}.npy'.format(self.case_name, 0, False))
 
         delta_u_recorded_fine = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
-        force_recorded_fine = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
+        force_full_fine = np.load('data/numpy/{}/force_full_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
+        force_degraded_fine = np.load('data/numpy/{}/force_degraded_refine_{}_mfem_{}.npy'.format(self.case_name, 1, False))
 
         delta_u_recorded_mfem = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
-        force_recorded_mfem = np.load('data/numpy/{}/force_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
+        force_full_mfem = np.load('data/numpy/{}/force_full_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
+        force_degraded_mfem = np.load('data/numpy/{}/force_degraded_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
 
-        fig = plt.figure(0)
+        plt.rcParams.update({
+            "text.usetex": True,
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Helvetica"]})
+
+        # plt.rcParams.update({
+        #     "text.usetex": True,
+        #     "font.family": "serif",
+        #     "font.sans-serif": ["Computer Modern Roman"]})  
+
+        fig = plt.figure(num=0, figsize=(8, 6))
         # plt.plot(delta_u_recorded_coarse, force_recorded_coarse, linestyle='--', marker='o', color='blue', label='coarse')
         # plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='--', marker='o', color='yellow', label='fine')
         # plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='--', marker='o', color='red', label='mfem')
 
-        plt.plot(delta_u_recorded_coarse, np.absolute(force_recorded_coarse), linestyle='-', linewidth=4, color='blue', label='coarse')
-        plt.plot(delta_u_recorded_fine, np.absolute(force_recorded_fine), linestyle='-', linewidth=4, color='yellow', label='fine')
-        plt.plot(delta_u_recorded_mfem, np.absolute(force_recorded_mfem), linestyle='-', linewidth=4, color='red', label='mfem')
+        if self.case_name == 'L_shape':
+            plt.plot(delta_u_recorded_coarse, force_full_coarse, linestyle='-', linewidth=4, color='blue', label='Coarse')
+            plt.plot(delta_u_recorded_fine, force_full_fine, linestyle='-', linewidth=4, color='yellow', label='Fine')
+            plt.plot(delta_u_recorded_mfem, force_full_mfem, linestyle='-', linewidth=4, color='red', label='MPFM')
+        else:            
+            plt.plot(np.absolute(delta_u_recorded_coarse), np.absolute(force_full_coarse), linestyle='-', linewidth=4, color='blue', label='Coarse')
+            plt.plot(np.absolute(delta_u_recorded_fine), np.absolute(force_full_fine), linestyle='-', linewidth=4, color='yellow', label='Fine')
+            plt.plot(np.absolute(delta_u_recorded_mfem), np.absolute(force_full_mfem), linestyle='-', linewidth=4, color='red', label='MPFM')
 
         plt.legend(fontsize=14)
         plt.tick_params(labelsize=14)
-        plt.xlabel("Vertical displacement of top side", fontsize=14)
-        plt.ylabel("Force on top side", fontsize=14)
+        plt.xlabel("Displacement (mm)", fontsize=14)
+        plt.ylabel("Force (kN)", fontsize=14)
         plt.grid(True)
         plt.show()
 
 
 
 #################################################################################################################
-# Adaptive Map
+# Adaptive map related functions
 #################################################################################################################
 
     def compute_impact_radius_tip_point(self, P, direct_vec=None):

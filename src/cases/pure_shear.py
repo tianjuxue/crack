@@ -1,12 +1,9 @@
 import fenics as fe
-import dolfin_adjoint as da
 import sys
 import time
 import numpy as np
 import mshr
 import matplotlib.pyplot as plt
-from functools import partial
-from pyadjoint.overloaded_type import create_overloaded_object
 from ..pde import MappedPDE
 from .. import arguments
 from ..constitutive import *
@@ -17,7 +14,10 @@ class PureShear(MappedPDE):
     def __init__(self, args):
         self.case_name = "pure_shear"
         self.solution_scheme = 'explicit'
-        self.local_refinement_iteration = 1
+        # self.map_type = 'identity'
+        # self.local_refinement_iteration = 1
+        self.map_type = args.map_type
+        self.local_refinement_iteration = args.local_refinement_iteration
         super(PureShear, self).__init__(args)
 
         self.displacements = 1e-1*np.concatenate((np.linspace(0, 0.08, 11), np.linspace(0.08, 0.16, 301)))
@@ -35,7 +35,6 @@ class PureShear(MappedPDE):
         print(self.mesh.hmin())        
         print("self.l0 is {}".format(self.l0))
 
-        self.map_type = 'identity'
 
         if self.map_type == 'linear' or self.map_type == 'smooth':
             self.map_flag = True
@@ -63,8 +62,7 @@ class PureShear(MappedPDE):
         plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
         notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
 
-        resolution = 50 if self.local_refinement_iteration == 0 else 100
-
+        resolution = 50 * np.power(2, self.local_refinement_iteration)
         self.mesh = mshr.generate_mesh(plate - notch, resolution)
 
         length = self.length
@@ -99,27 +97,14 @@ class PureShear(MappedPDE):
 
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
- 
-        # self.presLoad = da.Expression(("t", 0.), t=0.0, degree=1)
-        # BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
-        # BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper)
-        # self.BC_u = [BC_u_lower, BC_u_upper] 
-        # self.BC_d = []
-
-        self.presLoad = da.Expression(("t", 0), t=0.0, degree=1)
-        BC_u_lower = da.DirichletBC(self.U, da.Constant((0., 0.)), self.lower)
-        BC_u_upper = da.DirichletBC(self.U, self.presLoad, self.upper) 
-        BC_u_left = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.left)
-        BC_u_right = da.DirichletBC(self.U.sub(1), da.Constant(0),  self.right)
+        self.presLoad = fe.Expression(("t", 0), t=0.0, degree=1)
+        BC_u_lower = fe.DirichletBC(self.U, fe.Constant((0., 0.)), self.lower)
+        BC_u_upper = fe.DirichletBC(self.U, self.presLoad, self.upper) 
+        BC_u_left = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.left)
+        BC_u_right = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.right)
         self.BC_u = [BC_u_lower, BC_u_upper, BC_u_left, BC_u_right] 
         self.BC_d = []
 
-
-def test(args):
-    pde = PureShear(args)
-    # pde.staggered_solve()
-    pde.post_processing()
- 
 
 if __name__ == '__main__':
     args = arguments.args

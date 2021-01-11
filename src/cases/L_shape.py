@@ -1,13 +1,11 @@
 import fenics as fe
-import dolfin_adjoint as da
 import sys
 import meshio
 import time
 import numpy as np
 import mshr
 import matplotlib.pyplot as plt
-from functools import partial
-from pyadjoint.overloaded_type import create_overloaded_object
+import time
 from ..pde import MappedPDE
 from .. import arguments
 from ..constitutive import *
@@ -18,32 +16,20 @@ from ..mesh_converter import save_with_meshio, load_with_meshio
 class LShape(MappedPDE):
     def __init__(self, args):
         self.case_name = "L_shape"
-        self.mesh_refinement_level = "refine_0"
+        self.mesh_refinement_level = "refine_1"
         self.solution_scheme = 'explicit'
-        self.local_refinement_iteration = 0
+        # self.map_type = 'identity'
+        # self.local_refinement_iteration = 0
+        self.map_type = args.map_type
+        self.local_refinement_iteration = args.local_refinement_iteration
         super(LShape, self).__init__(args)
 
         # self.displacements = 1e-2*np.linspace(0.0, 0.15, 51)
-        # self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.10, 11), np.linspace(0.10, 0.15, 51)))
-
-        # self.displacements = np.concatenate((np.linspace(0, 0.25, 26), 
-        #                                      np.linspace(0.25, 0.27, 101), 
-        #                                      np.linspace(0.27, 0.3, 201),
-        #                                      np.linspace(0.3, -0.2, 51),
-        #                                      np.linspace(-0.2, 0.2, 41),
-        #                                      np.linspace(0.2, 0.5, 101)))
-
         self.displacements = np.concatenate((np.linspace(0, 0.25, 26), 
                                              np.linspace(0.25, 0.3, 201),
-                                             np.linspace(0.3, -0.2, 51),
-                                             np.linspace(-0.2, 0.2, 41),
+                                             np.linspace(0.3, -0.1, 41),
+                                             np.linspace(-0.1, 0.2, 31),
                                              np.linspace(0.2, 0.5, 201)))
-
-        # self.displacements =  np.linspace(0, 0.2, 10)    
-
-        # self.displacements =  np.concatenate((np.linspace(0, 0.25, 26), 
-        #                                       np.linspace(0.25, 0.27, 101), 
-        #                                       np.linspace(0.27, 0.3, 201)))
 
         self.relaxation_parameters = np.linspace(1., 1., len(self.displacements))
  
@@ -58,9 +44,6 @@ class LShape(MappedPDE):
         self.mu = 10.95
         self.lamda = 6.16
         self.G_c = 8.9*1e-5
-
-        # self.psi_cr = 1e-7
-        # self.psi_cr = self.G_c / (2 * self.l0)
         self.psi_cr = 0.
 
         # self.l0 = self.mesh.hmax() + self.mesh.hmin()
@@ -70,7 +53,6 @@ class LShape(MappedPDE):
         print(self.mesh.hmin())
         print("self.l0 is {}".format(self.l0))
 
-        self.map_type = 'identity'
 
         if self.map_type == 'linear' or self.map_type == 'smooth':
             self.map_flag = True
@@ -113,7 +95,7 @@ class LShape(MappedPDE):
             cell_markers.set_all(False)
             for cell in fe.cells(self.mesh):
                 p = cell.midpoint()
-                if  p[0] > 3./20.*self.length and p[0] < 10.5/20.*self.length and p[1] > 9.5/20.*self.height and p[1] < 13/20*self.height:
+                if  p[0] > 1./20.*self.length and p[0] < 10.5/20.*self.length and p[1] > 9.5/20.*self.height and p[1] < 13/20*self.height:
                 # if np.sqrt((p[0] - self.length/2.)**2 + (p[1] - self.height/2.)**2) < self.length/5.:
                     cell_markers[cell] = True
             self.mesh = fe.refine(self.mesh, cell_markers)
@@ -148,12 +130,6 @@ class LShape(MappedPDE):
         self.BC_u = [BC_u_lower, BC_u_segment]
         self.BC_d = []
 
-
-def test(args):
-    pde = LShape(args)
-    # pde.staggered_solve()
-    pde.post_processing()
- 
 
 if __name__ == '__main__':
     args = arguments.args

@@ -35,7 +35,7 @@ def psi_linear_elasticity(epsilon, lamda, mu):
 
 
 # ----------------------------------------------------------------
-# Model A
+# Model A: Essentially no decomposition
 def psi_plus_linear_elasticity_model_A(epsilon, lamda, mu):
     return psi_linear_elasticity(epsilon, lamda, mu)
 
@@ -46,7 +46,7 @@ def psi_minus_linear_elasticity_model_A(epsilon, lamda, mu):
 
 # ----------------------------------------------------------------
 # Model B: Amor paper https://doi.org/10.1016/j.jmps.2009.04.011
-# TODO: Check if bulk_mod is correct under plane strain assumption
+# TODO(Tianju): Check if bulk_mod is correct under plane strain assumption
 def psi_plus_linear_elasticity_model_B(epsilon, lamda, mu):
     bulk_mod = lamda + 2. / 3. * mu
     tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
@@ -78,17 +78,9 @@ def psi_plus_linear_elasticity_model_C(epsilon, lamda, mu):
     sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
     eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
     eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
-
-    # tr_epsilon_plus = (fe.tr(epsilon) + np.absolute(fe.tr(epsilon))) / 2
-    # eigen_value_1_plus = (eigen_value_1 + np.absolute(eigen_value_1)) / 2
-    # eigen_value_2_plus = (eigen_value_2 + np.absolute(eigen_value_2)) / 2
-
-
     tr_epsilon_plus = fe.conditional(fe.gt(fe.tr(epsilon), 0.), fe.tr(epsilon), 0.)
     eigen_value_1_plus = fe.conditional(fe.gt(eigen_value_1, 0.), eigen_value_1, 0.)
     eigen_value_2_plus = fe.conditional(fe.gt(eigen_value_2, 0.), eigen_value_2, 0.)
-
-
     return lamda / 2 * tr_epsilon_plus**2 + mu * (eigen_value_1_plus**2 + eigen_value_2_plus**2)
 
 
@@ -96,16 +88,9 @@ def psi_minus_linear_elasticity_model_C(epsilon, lamda, mu):
     sqrt_delta = fe.conditional(fe.gt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon), 0), fe.sqrt(fe.tr(epsilon)**2 - 4 * fe.det(epsilon)), 0)
     eigen_value_1 = (fe.tr(epsilon) + sqrt_delta) / 2
     eigen_value_2 = (fe.tr(epsilon) - sqrt_delta) / 2
-
-    # tr_epsilon_minus = (fe.tr(epsilon) - np.absolute(fe.tr(epsilon))) / 2
-    # eigen_value_1_minus = (eigen_value_1 - np.absolute(eigen_value_1)) / 2
-    # eigen_value_2_minus = (eigen_value_2 - np.absolute(eigen_value_2)) / 2
-
     tr_epsilon_minus = fe.conditional(fe.lt(fe.tr(epsilon), 0.), fe.tr(epsilon), 0.)
     eigen_value_1_minus = fe.conditional(fe.lt(eigen_value_1, 0.), eigen_value_1, 0.)
     eigen_value_2_minus = fe.conditional(fe.lt(eigen_value_2, 0.), eigen_value_2, 0.)
-
-
     return lamda / 2 * tr_epsilon_minus**2 + mu * (eigen_value_1_minus**2 + eigen_value_2_minus**2)
 
 
@@ -134,7 +119,7 @@ def cauchy_stress(epsilon, psi):
 
 
 # ---------------------------------------------------------------- 
-# Nonlinear material models
+# Nonlinear material models: Under development
 
 
 # ---------------------------------------------------------------- 

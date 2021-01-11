@@ -1,12 +1,9 @@
 import fenics as fe
-import dolfin_adjoint as da
 import sys
 import time
 import numpy as np
 import mshr
 import matplotlib.pyplot as plt
-from functools import partial
-from pyadjoint.overloaded_type import create_overloaded_object
 from ..pde import MappedPDE
 from .. import arguments
 from ..constitutive import *
@@ -17,9 +14,10 @@ class ThreePointBending(MappedPDE):
     def __init__(self, args):
         self.case_name = "three_point_bending"
         self.solution_scheme = 'explicit'
-        self.map_type = 'smooth'
-        self.local_refinement_iteration = 0
-
+        # self.map_type = 'smooth'
+        # self.local_refinement_iteration = 0
+        self.map_type = args.map_type
+        self.local_refinement_iteration = args.local_refinement_iteration
         super(ThreePointBending, self).__init__(args)
 
         self.displacements = -1e-1*np.concatenate((np.linspace(0, 0.5, 21),
@@ -34,8 +32,6 @@ class ThreePointBending(MappedPDE):
         self.psi_cr = 0.
 
         # self.l0 = (self.mesh.hmin() + self.mesh.hmax())
-        # self.l0 = 0.2
-        # self.l0 = 2 * self.mesh.hmin()
         self.l0 = 0.08
 
         print(self.mesh.hmax())
@@ -52,12 +48,6 @@ class ThreePointBending(MappedPDE):
         self.rho_default = 15.
 
         self.initialize_control_points_and_impact_radii()
-
-
-        # for x_hat in self.mesh.coordinates():
-        #     x = map_function_normal(x_hat, self.control_points, self.impact_radii, 'smooth', self.boundary_info)
-        #     x_hat[0] = x[0]
-        #     x_hat[1] = x[1]
 
 
     def initialize_control_points_and_impact_radii(self):
@@ -97,7 +87,6 @@ class ThreePointBending(MappedPDE):
                     cell_markers[cell] = True
             self.mesh = fe.refine(self.mesh, cell_markers)
 
- 
         length = self.length
         height = self.height
         notch_length = self.notch_length
@@ -136,12 +125,6 @@ class ThreePointBending(MappedPDE):
         self.BC_u = [BC_u_left, BC_u_right, BC_u_middle]
         self.BC_d = []
 
-
-def test(args):
-    pde = ThreePointBending(args)
-    # pde.staggered_solve()
-    pde.post_processing()
- 
 
 if __name__ == '__main__':
     args = arguments.args

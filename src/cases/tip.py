@@ -13,24 +13,33 @@ from ..mfem import distance_function_segments_ufl, map_function_ufl, map_functio
 class Tip(MappedPDE):
     def __init__(self, args):
         self.case_name = "tip"
+        self.solution_scheme = 'explicit'
+        self.map_type = 'smooth'
+        self.local_refinement_iteration = 2
+        # self.map_type = args.map_type
+        # self.local_refinement_iteration = args.local_refinement_iteration
         super(Tip, self).__init__(args)
 
-        self.displacements = [1] # Not really useful
+        self.display_intermediate_results = False
+
+        # Not really useful, just to override base class member variables
+        self.displacements = [1] 
         self.relaxation_parameters = np.linspace(1., 1., len(self.displacements))
+        self.presLoad = fe.Expression("t", t=0, degree=1)
  
-        self.psi_cr = 1e-7
+        self.mu = 80.77        
+        self.lamda = 121.15
+        self.G_c = 2.7*1e-3
+        self.psi_cr = 0.
 
-        self.E = 1e5
-        self.nu = 0.3
-        self.mu = self.E / (2 * (1 + self.nu))
-        self.lamda = (2. * self.mu * self.nu) / (1. - 2. * self.nu)
-        self.K_I = 1.
-        self.kappa = 3 - 4 * self.nu
+        self.l0 = 0.1
 
-        self.l0 = 10
-
-        self.map_type = 'smooth'
+        if self.map_type == 'linear' or self.map_type == 'smooth':
+            self.map_flag = True
+        elif self.map_type == 'identity':
+            self.map_flag = False
         self.finish_flag = True
+
         self.initialize_control_points_and_impact_radii()
 
 
@@ -40,14 +49,17 @@ class Tip(MappedPDE):
 
 
     def build_mesh(self):
-        self.length = 100
-        self.height = 100
+        self.length = 1.
+        self.height = 1.
         plate = mshr.Rectangle(fe.Point(0., 0.), fe.Point(self.length, self.height))
-        notch = mshr.Polygon([fe.Point(0., self.height/2. + 1e-10), fe.Point(0., self.height/2.-1e-10), fe.Point(self.length/2., self.height/2.)])
-        self.mesh = mshr.generate_mesh(plate - notch, 50)
+        notch = mshr.Polygon([fe.Point(0., self.height/2. + 1e-10), fe.Point(0., self.height/2. - 1e-10), fe.Point(self.length/2., self.height/2.)])
+
+        resolution = 50 * np.power(2, self.local_refinement_iteration)
+        self.mesh = mshr.generate_mesh(plate - notch, resolution)
 
 
     def set_bcs_staggered(self):
+        self.fix_load = fe.Constant(1e-2)
         compute_analytical_solutions = self.compute_analytical_solutions_fully_broken
         control_points = self.control_points
         impact_radii  = self.impact_radii
@@ -64,15 +76,6 @@ class Tip(MappedPDE):
 
             def value_shape(self):
                 return (2,)
-
-        class DamageExpression(fe.UserExpression):
-            def eval(self, values, x_hat):
-                x = map_function_normal(x_hat, control_points, impact_radii, map_type, boundary_info) 
-                _, d_exact = compute_analytical_solutions(x)
-                values[0] = float(d_exact)
-
-            def value_shape(self):
-                return ()
 
         class Lower(fe.SubDomain):
             def inside(self, x, on_boundary):
@@ -104,11 +107,12 @@ class Tip(MappedPDE):
 
         self.mfem_grad = mfem_grad_wrapper(fe.grad)
 
-        self.psi_plus_func = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
-        self.psi_minus_func = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_plus = partial(psi_plus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi_minus = partial(psi_minus_linear_elasticity_model_A, lamda=self.lamda, mu=self.mu)
+        self.psi = partial(psi_linear_elasticity, lamda=self.lamda, mu=self.mu)
 
-        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus_func)
-        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus_func)
+        sigma_plus = cauchy_stress_plus(strain(self.mfem_grad(self.x_new)), self.psi_plus)
+        sigma_minus = cauchy_stress_minus(strain(self.mfem_grad(self.x_new)), self.psi_minus)
 
         self.u_exact, self.d_exact = self.compute_analytical_solutions_fully_broken(self.x)
  
@@ -117,12 +121,24 @@ class Tip(MappedPDE):
 
         self.G_d = (self.d_new - self.d_exact) * self.zeta * fe.det(self.grad_gamma) * fe.dx
 
+        self.u_initial = self.nonzero_initial_guess(self.x)
+        self.x_new.assign(fe.project(self.u_initial, self.U))
+
+
+    def nonzero_initial_guess(self, x):
+        x1 = x[0]
+        x2 = x[1]
+        u1 = fe.Constant(0.)
+        u2 = self.fix_load * x2 / self.height 
+        u_initial = fe.as_vector([u1, u2])
+        return u_initial
+
 
     def compute_analytical_solutions_fully_broken(self, x):
         x1 = x[0]
         x2 = x[1]
         u1 = fe.Constant(0.)
-        u2 = fe.conditional(fe.gt(x2, self.height/2.), fe.Constant(1.), fe.Constant(0.))
+        u2 = fe.conditional(fe.gt(x2, self.height/2.), self.fix_load, fe.Constant(0.))
         u_exact = fe.as_vector([u1, u2])
         distance_field, _ = distance_function_segments_ufl(x, self.control_points, self.impact_radii)
         d_exact = fe.exp(-distance_field/(self.l0))
@@ -130,8 +146,8 @@ class Tip(MappedPDE):
 
 
     def energy_norm(self, u):
-        psi_plus = self.psi_plus_func(strain(self.mfem_grad(u)))
-        psi_minus = self.psi_minus_func(strain(self.mfem_grad(u)))
+        psi_plus = self.psi_plus(strain(self.mfem_grad(u)))
+        psi_minus = self.psi_minus(strain(self.mfem_grad(u)))
         return np.sqrt(float(fe.assemble((g_d(self.d_exact) * psi_plus + psi_minus) * fe.det(self.grad_gamma) * fe.dx)))
 
 
@@ -151,11 +167,21 @@ class Tip(MappedPDE):
         print("Displacement error energy_norm is {}".format(u_energy_error))        
 
 
+    # Override base class method
+    def save_data_in_loop(self):
+        pass
+
+    def create_custom_xdmf_files(self):
+        pass
+
+    def show_force_displacement(self):
+        pass
+
+
 def test(args):
     pde_tip = Tip(args)
     pde_tip.staggered_solve()
     pde_tip.evaluate_errors()
-    # plt.show()
 
 
 if __name__ == '__main__':
