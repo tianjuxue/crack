@@ -51,7 +51,7 @@ def run_case(args, CaseClass):
         np.save('data/numpy/{}/time_refine_{}_mfem_{}.npy'.format(pde.case_name,  1, False), time_break3 - time_break2)
 
 
-def run(args):
+def main(args):
     run_case(args, LShape)
     run_case(args, ThreePointBending)
     run_case(args, PureShear)
@@ -60,4 +60,4 @@ def run(args):
 
 if __name__ == '__main__':
     args = arguments.args
-    run(args)
+    main(args)

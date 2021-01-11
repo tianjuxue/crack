@@ -347,17 +347,7 @@ class MappedPDE(object):
         delta_u_recorded_mfem = np.load('data/numpy/{}/displacement_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
         force_full_mfem = np.load('data/numpy/{}/force_full_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
         force_degraded_mfem = np.load('data/numpy/{}/force_degraded_refine_{}_mfem_{}.npy'.format(self.case_name, 0, True))
-
-        plt.rcParams.update({
-            "text.usetex": True,
-            "font.family": "sans-serif",
-            "font.sans-serif": ["Helvetica"]})
-
-        # plt.rcParams.update({
-        #     "text.usetex": True,
-        #     "font.family": "serif",
-        #     "font.sans-serif": ["Computer Modern Roman"]})  
-
+ 
         fig = plt.figure(num=0, figsize=(8, 6))
         # plt.plot(delta_u_recorded_coarse, force_recorded_coarse, linestyle='--', marker='o', color='blue', label='coarse')
         # plt.plot(delta_u_recorded_fine, force_recorded_fine, linestyle='--', marker='o', color='yellow', label='fine')
@@ -372,7 +362,7 @@ class MappedPDE(object):
             plt.plot(np.absolute(delta_u_recorded_fine), np.absolute(force_full_fine), linestyle='-', linewidth=4, color='yellow', label='Fine')
             plt.plot(np.absolute(delta_u_recorded_mfem), np.absolute(force_full_mfem), linestyle='-', linewidth=4, color='red', label='MPFM')
 
-        plt.legend(fontsize=14)
+        plt.legend(fontsize=14, frameon=False)
         plt.tick_params(labelsize=14)
         plt.xlabel("Displacement (mm)", fontsize=14)
         plt.ylabel("Force (kN)", fontsize=14)
