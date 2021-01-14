@@ -13,7 +13,7 @@ def history(H_old, psi_new, psi_cr):
 # ---------------------------------------------------------------- 
 # Degradation functions
 def g_d(d):
-    degrad = (1 - d)**2 + 1e-10;
+    degrad = (1 - d)**2;
     return degrad 
 
 
@@ -48,13 +48,15 @@ def psi_minus_linear_elasticity_model_A(epsilon, lamda, mu):
 # Model B: Amor paper https://doi.org/10.1016/j.jmps.2009.04.011
 # TODO(Tianju): Check if bulk_mod is correct under plane strain assumption
 def psi_plus_linear_elasticity_model_B(epsilon, lamda, mu):
-    bulk_mod = lamda + 2. / 3. * mu
+    dim = 2
+    bulk_mod = lamda + 2. * mu / dim
     tr_epsilon_plus = ufl.Max(fe.tr(epsilon), 0)
     return bulk_mod / 2. * tr_epsilon_plus**2 + mu * fe.inner(fe.dev(epsilon), fe.dev(epsilon))
 
 
 def psi_minus_linear_elasticity_model_B(epsilon, lamda, mu):
-    bulk_mod = lamda + 2. / 3. * mu
+    dim = 2
+    bulk_mod = lamda + 2. * mu / dim
     tr_epsilon_minus = ufl.Min(fe.tr(epsilon), 0)
     return bulk_mod / 2. * tr_epsilon_minus**2
 

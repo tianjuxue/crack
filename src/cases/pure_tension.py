@@ -21,7 +21,7 @@ class PureTension(MappedPDE):
 
         super(PureTension, self).__init__(args)
 
-        self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.6, 21), np.linspace(0.6, 0.7, 501)))
+        self.displacements = 1e-2*np.concatenate((np.linspace(0, 0.6, 21), np.linspace(0.6, 0.7, 301)))
         # self.displacements = 1e-2*np.linspace(0.0, 0.7, 11)
  
         self.relaxation_parameters = np.linspace(1, 1, len(self.displacements))
@@ -56,11 +56,21 @@ class PureTension(MappedPDE):
         self.length = 1.
         self.height = 1.
  
-        plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
-        notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        # plate = mshr.Rectangle(fe.Point(0, 0), fe.Point(self.length, self.height))
+        # notch = mshr.Polygon([fe.Point(0, self.height / 2 + 1e-10), fe.Point(0, self.height / 2 - 1e-10), fe.Point(self.length / 2, self.height / 2)])
+        # domain = plate - notch
+
+        domain = mshr.Polygon([fe.Point(self.length / 2, self.height / 2), 
+                               fe.Point(0, self.height / 2 - 1e-10), 
+                               fe.Point(0, 0),
+                               fe.Point(self.length, 0),
+                               fe.Point(self.length, self.height/2),
+                               fe.Point(self.length, self.height),
+                               fe.Point(0, self.height),
+                               fe.Point(0, self.height/2 + 1e-10)])
 
         resolution = 50 * np.power(2, self.local_refinement_iteration)
-        self.mesh = mshr.generate_mesh(plate - notch, resolution)
+        self.mesh = mshr.generate_mesh(domain, resolution)
 
         length = self.length
         height = self.height
@@ -84,11 +94,18 @@ class PureTension(MappedPDE):
 
     def set_bcs_staggered(self):
         self.upper.mark(self.boundaries, 1)
+
+        # self.presLoad = fe.Expression("t", t=0.0, degree=1)
+        # BC_u_lower = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.lower)
+        # BC_u_upper = fe.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
+        # BC_u_corner = fe.DirichletBC(self.U.sub(0), fe.Constant(0.0), self.corner, method='pointwise')
+        # self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
+        # self.BC_d = []
+
         self.presLoad = fe.Expression("t", t=0.0, degree=1)
-        BC_u_lower = fe.DirichletBC(self.U.sub(1), fe.Constant(0),  self.lower)
+        BC_u_lower = fe.DirichletBC(self.U, fe.Constant((0, 0)),  self.lower)
         BC_u_upper = fe.DirichletBC(self.U.sub(1), self.presLoad,  self.upper)
-        BC_u_corner = fe.DirichletBC(self.U.sub(0), fe.Constant(0.0), self.corner, method='pointwise')
-        self.BC_u = [BC_u_lower, BC_u_upper, BC_u_corner]
+        self.BC_u = [BC_u_lower, BC_u_upper]
         self.BC_d = []
 
 

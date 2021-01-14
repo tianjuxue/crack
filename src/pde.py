@@ -40,13 +40,13 @@ class MappedPDE(object):
 
 
     def preparation(self):
-        # files = glob.glob('data/pvd/{}/*'.format(self.case_name))
+        # files = glob.glob('data/pvd/simulation/{}/*'.format(self.case_name))
         # for f in files:
         #     try:
         #         os.remove(f)
         #     except Exception as e:
         #         print('Failed to delete {}, reason: {}' % (f, e))
-        data_path_pvd = 'data/pvd/{}'.format(self.case_name)
+        data_path_pvd = 'data/pvd/simulation/{}'.format(self.case_name)
         print("\nDelete data folder {}".format(data_path_pvd))
         shutil.rmtree(data_path_pvd, ignore_errors=True)
         # data_path_xdmf = 'data/xdmf/{}'.format(self.case_name)
@@ -96,9 +96,9 @@ class MappedPDE(object):
         file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
         file_results.parameters["functions_share_mesh"] = True
 
-        vtkfile_e = fe.File('data/pvd/{}/e.pvd'.format(self.case_name))
-        vtkfile_u = fe.File('data/pvd/{}/u.pvd'.format(self.case_name))
-        vtkfile_d = fe.File('data/pvd/{}/d.pvd'.format(self.case_name))
+        vtkfile_e = fe.File('data/pvd/simulation/{}/e.pvd'.format(self.case_name))
+        vtkfile_u = fe.File('data/pvd/simulation/{}/u.pvd'.format(self.case_name))
+        vtkfile_d = fe.File('data/pvd/simulation/{}/d.pvd'.format(self.case_name))
 
         for i, (disp, rp) in enumerate(zip(self.displacements, self.relaxation_parameters)):
             print('\n')
@@ -113,10 +113,13 @@ class MappedPDE(object):
                 print("Update weak form...")
                 self.build_weak_form_staggered()
 
+                print("Taking derivatives of weak form...")
                 J_u = fe.derivative(self.G_u, self.x_new, del_x)
                 J_d = fe.derivative(self.G_d, self.d_new, del_d) 
+                print("Define nonlinear problems...")
                 p_u = fe.NonlinearVariationalProblem(self.G_u, self.x_new, self.BC_u, J_u)
                 p_d  = fe.NonlinearVariationalProblem(self.G_d,  self.d_new, self.BC_d, J_d)
+                print("Define solvers...")
                 solver_u = fe.NonlinearVariationalSolver(p_u)
                 solver_d  = fe.NonlinearVariationalSolver(p_d)
                 self.update_weak_form = False
@@ -141,10 +144,10 @@ class MappedPDE(object):
             newton_prm['maximum_iterations'] = 100 
             # newton_prm['absolute_tolerance'] = 1e-8
             newton_prm['relaxation_parameter'] = rp
-           
-            vtkfile_e_staggered = fe.File('data/pvd/{}/step{}/e.pvd'.format(self.case_name, i))
-            vtkfile_u_staggered = fe.File('data/pvd/{}/step{}/u.pvd'.format(self.case_name, i))
-            vtkfile_d_staggered = fe.File('data/pvd/{}/step{}/d.pvd'.format(self.case_name, i))
+
+            vtkfile_e_staggered = fe.File('data/pvd/simulation/{}/step{}/e.pvd'.format(self.case_name, i))
+            vtkfile_u_staggered = fe.File('data/pvd/simulation/{}/step{}/u.pvd'.format(self.case_name, i))
+            vtkfile_d_staggered = fe.File('data/pvd/simulation/{}/step{}/d.pvd'.format(self.case_name, i))
             iteration = 0
             err = 1.
             while err > self.staggered_tol:
@@ -448,7 +451,7 @@ class MappedPDE(object):
             v2 = new_tip_point - self.control_points[-1]
             impact_radius_middle_point = self.compute_impact_radius_middle_point(self.control_points[-1], self.middle_vector(v1, v2))
             impact_radius_tip_point = self.compute_impact_radius_tip_point(new_tip_point, new_tip_point - self.control_points[-1])
-            if impact_radius_middle_point < self.rho_default or impact_radius_tip_point < self.rho_default:
+            if impact_radius_middle_point < self.rho_default or impact_radius_tip_point < self.rho_default or len(self.control_points) > 1e10:
                 self.impact_radii = np.append(self.impact_radii, self.rho_default)
 
                 self.compute_boundary_info(self.control_points[-1], -v1)

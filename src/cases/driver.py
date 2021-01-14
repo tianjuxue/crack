@@ -31,17 +31,17 @@ def run_case(args, CaseClass):
 
         time_break1 = time.time()
 
-        args.map_type = 'identity'
-        args.local_refinement_iteration = 0
-        pde = CaseClass(args)
-        pde.staggered_solve()
+        # args.map_type = 'identity'
+        # args.local_refinement_iteration = 0
+        # pde = CaseClass(args)
+        # pde.staggered_solve()
 
         time_break2 = time.time()
 
-        args.map_type = 'identity'
-        args.local_refinement_iteration = 1
-        pde = CaseClass(args)
-        pde.staggered_solve()    
+        # args.map_type = 'identity'
+        # args.local_refinement_iteration = 1
+        # pde = CaseClass(args)
+        # pde.staggered_solve()    
 
         time_break3 = time.time()
 
@@ -52,10 +52,10 @@ def run_case(args, CaseClass):
 
 
 def main(args):
-    run_case(args, LShape)
-    run_case(args, ThreePointBending)
+    # run_case(args, LShape)
+    # run_case(args, ThreePointBending)
     run_case(args, PureShear)
-    run_case(args, PureTension)
+    # run_case(args, PureTension)
 
 
 if __name__ == '__main__':

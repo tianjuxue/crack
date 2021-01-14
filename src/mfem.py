@@ -458,5 +458,71 @@ def mfem():
     # vtkfile_e << e
 
 
+def show_map():
+    domain_size = 1.
+    coarse_division = 51
+    fine_division = 501
+    x_coo = []
+    y_coo = []
+    for i in range(coarse_division + 1):
+        x_coo.append(np.linspace(0, domain_size, fine_division + 1))
+        y_coo.append(np.linspace(i*domain_size/coarse_division, i*domain_size/coarse_division, fine_division + 1))
+
+    for i in range(coarse_division + 1):
+        y_coo.append(np.linspace(0, domain_size, fine_division + 1))
+        x_coo.append(np.linspace(i*domain_size/coarse_division, i*domain_size/coarse_division, fine_division + 1))
+
+    x_coo = np.array(x_coo)
+    y_coo = np.array(y_coo)
+
+    p1 = [3./8., 3./8.]
+    p2 = [5./8., 5./8.]
+    radius = 1./4.
+    control_points = np.array([p1, p2])
+    impact_radii = np.array([radius, radius])
+
+    x_coo_mapped = np.array(x_coo)
+    y_coo_mapped = np.array(y_coo)
+
+    for i in range(len(x_coo)):
+        for j in range(len(x_coo[0])):
+            x_mapped = map_function_normal([x_coo[i][j], y_coo[i][j]], control_points, impact_radii, 'smooth')
+            x_coo_mapped[i][j] = x_mapped[0]
+            y_coo_mapped[i][j] = x_mapped[1] 
+
+    angles1 = np.linspace(3./4.*np.pi, 7./4.*np.pi, 100)
+    x_curve1 = radius * np.cos(angles1) + p1[0]
+    y_curve1 = radius * np.sin(angles1) + p1[0]
+
+    angles2 = np.linspace(-np.pi/4., 3./4.*np.pi, 100)
+    x_curve2 = radius * np.cos(angles2) + p2[0]
+    y_curve2 = radius * np.sin(angles2) + p2[1]
+
+    plt.figure(num=0, figsize=(8, 8))
+    for i in range(len(x_coo)):
+        plt.plot(x_coo[i], y_coo[i], color='black', linewidth=0.5)
+    plt.plot(x_curve1, y_curve1, linestyle='--', color='red')
+    plt.plot(x_curve2, y_curve2, linestyle='--', color='red')
+    plt.plot([x_curve1[0], x_curve2[-1]], [y_curve1[0], y_curve2[-1]], linestyle='--', color='red')
+    plt.plot([x_curve1[-1], x_curve2[0]], [y_curve1[-1], y_curve2[0]], linestyle='--', color='red')
+    plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', marker='o', color='red')
+    plt.gca().set_aspect('equal')
+    plt.axis('off')
+
+    plt.figure(num=1, figsize=(8, 8))
+    for i in range(len(x_coo)):
+        plt.plot(x_coo_mapped[i], y_coo_mapped[i], color='black', linewidth=0.5)
+    plt.plot(x_curve1, y_curve1, linestyle='--', color='red')
+    plt.plot(x_curve2, y_curve2, linestyle='--', color='red')
+    plt.plot([x_curve1[0], x_curve2[-1]], [y_curve1[0], y_curve2[-1]], linestyle='--', color='red')
+    plt.plot([x_curve1[-1], x_curve2[0]], [y_curve1[-1], y_curve2[0]], linestyle='--', color='red')
+    plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', marker='o', color='red')
+    plt.gca().set_aspect('equal')
+    plt.axis('off')
+
+    plt.show()
+
+
 if __name__ == '__main__':
-    mfem()
+    # mfem()
+    show_map()

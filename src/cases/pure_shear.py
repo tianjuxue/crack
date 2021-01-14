@@ -43,7 +43,9 @@ class PureShear(MappedPDE):
             self.map_flag = False
 
         self.rho_default = 0.14
-        self.d_integral_interval = 0.1 * self.rho_default**2
+        # self.d_integral_interval = 0.1 * self.rho_default**2
+        self.d_integral_interval = 0.2* self.rho_default**2
+
         self.initialize_control_points_and_impact_radii()
 
 
