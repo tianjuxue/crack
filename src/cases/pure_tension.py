@@ -48,7 +48,7 @@ class PureTension(MappedPDE):
 
 
     def initialize_control_points_and_impact_radii(self):
-        self.control_points = np.array([[self.length/2., self.height/2.], [2 * self.length, self.height/2.]])
+        self.control_points = np.array([[self.length/2., self.height/2.], [self.length, self.height/2.]])
         self.impact_radii = np.array([self.height/4, self.height/4])
 
 

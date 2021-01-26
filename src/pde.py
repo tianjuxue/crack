@@ -37,6 +37,7 @@ class MappedPDE(object):
         self.boundary_info = None
         self.rho_default = 15.
         self.d_integral_interval = 1.5*self.rho_default
+        self.compute_and_save_intermediate_results = False
 
 
     def preparation(self):
@@ -93,8 +94,8 @@ class MappedPDE(object):
 
         self.create_custom_xdmf_files() 
 
-        file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
-        file_results.parameters["functions_share_mesh"] = True
+        self.file_results = fe.XDMFFile('data/xdmf/{}/u.xdmf'.format(self.case_name))
+        self.file_results.parameters["functions_share_mesh"] = True
 
         vtkfile_e = fe.File('data/pvd/simulation/{}/e.pvd'.format(self.case_name))
         vtkfile_u = fe.File('data/pvd/simulation/{}/u.pvd'.format(self.case_name))
@@ -188,9 +189,9 @@ class MappedPDE(object):
                 print('>> iteration. {}, err_u = {:.5}, err_d = {:.5}, error = {:.5}'.format(iteration, err_x, err_d, err))
                 print('---------------------------------------------------------------------------------')
 
-                vtkfile_e_staggered << e
-                vtkfile_u_staggered << self.x_new
-                vtkfile_d_staggered << self.d_new
+                # vtkfile_e_staggered << e
+                # vtkfile_u_staggered << self.x_new
+                # vtkfile_d_staggered << self.d_new
 
                 if err < self.staggered_tol or iteration >= self.staggered_maxiter:
                     print('=================================================================================')
@@ -206,43 +207,46 @@ class MappedPDE(object):
             if self.map_flag and not self.finish_flag:
                 self.update_map()
 
-            print("Save files...")
-            file_results.write(e, i)
-            file_results.write(self.x_new, i)
-            file_results.write(self.d_new, i)
-            file_results.write(self.map_plot, i)
+            if self.compute_and_save_intermediate_results:
+                print("Save files...")
+                self.file_results.write(e, i)
+                self.file_results.write(self.x_new, i)
+                self.file_results.write(self.d_new, i)
+                self.file_results.write(self.map_plot, i)
 
-            vtkfile_e << e
-            vtkfile_u << self.x_new
-            vtkfile_d << self.d_new
+                vtkfile_e << e
+                vtkfile_u << self.x_new
+                vtkfile_d << self.d_new
 
-            # Assume boundary is not affected by the map. 
-            # There's no need to use the mfem_grad wrapper so that fe.grad is used for speed-up
-            sigma = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi)
-            sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
-            sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
-            sigma_degraded = g_d(self.d_new) * sigma_plus + sigma_minus
+                # Assume boundary is not affected by the map. 
+                # There's no need to use the mfem_grad wrapper so that fe.grad is used for speed-up
+                print("Define forces...")
+                sigma = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi)
+                sigma_minus = cauchy_stress_minus(strain(fe.grad(self.x_new)), self.psi_minus)
+                sigma_plus = cauchy_stress_plus(strain(fe.grad(self.x_new)), self.psi_plus)
+                sigma_degraded = g_d(self.d_new) * sigma_plus + sigma_minus
 
-            print("Compute forces...")
-            if self.case_name == 'pure_shear':
-                f_full = float(fe.assemble(sigma[0, 1] * self.ds(1)))
-                f_degraded = float(fe.assemble(sigma_degraded[0, 1] * self.ds(1)))
-            else:
-                f_full = float(fe.assemble(sigma[1, 1] * self.ds(1)))
-                f_degraded = float(fe.assemble(sigma_degraded[1, 1] * self.ds(1)))
-            print("Force full is {}".format(f_full))
-            print("Force degraded is {}".format(f_degraded))
-            self.delta_u_recorded.append(disp)
-            self.force_full.append(f_full)
-            self.force_degraded.append(f_degraded)
+                print("Compute forces...")
+                if self.case_name == 'pure_shear':
+                    f_full = float(fe.assemble(sigma[0, 1] * self.ds(1)))
+                    f_degraded = float(fe.assemble(sigma_degraded[0, 1] * self.ds(1)))
+                else:
+                    f_full = float(fe.assemble(sigma[1, 1] * self.ds(1)))
+                    f_degraded = float(fe.assemble(sigma_degraded[1, 1] * self.ds(1)))
 
-            # if force_upper < 0.5 and i > 10:
-            #     break
+                print("Force full is {}".format(f_full))
+                print("Force degraded is {}".format(f_degraded))
+                self.delta_u_recorded.append(disp)
+                self.force_full.append(f_full)
+                self.force_degraded.append(f_degraded)
 
-            if self.display_intermediate_results and i % 10 == 0:
-                self.show_force_displacement()
+                # if force_upper < 0.5 and i > 10:
+                #     break
 
-            self.save_data_in_loop()
+                if self.display_intermediate_results and i % 10 == 0:
+                    self.show_force_displacement()
+
+                self.save_data_in_loop()
 
         if self.display_intermediate_results:
             plt.ioff()
@@ -309,7 +313,7 @@ class MappedPDE(object):
         plt.xlabel("Vertical displacement of top side", fontsize=14)
         plt.ylabel("Force on top side", fontsize=14)
         plt.grid(True)
-        fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
+        # fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
         plt.show()
         plt.pause(0.001)
             
@@ -357,19 +361,20 @@ class MappedPDE(object):
         # plt.plot(delta_u_recorded_mfem, force_recorded_mfem, linestyle='--', marker='o', color='red', label='mfem')
 
         if self.case_name == 'L_shape':
-            plt.plot(delta_u_recorded_coarse, force_full_coarse, linestyle='-', linewidth=4, color='blue', label='Coarse')
-            plt.plot(delta_u_recorded_fine, force_full_fine, linestyle='-', linewidth=4, color='yellow', label='Fine')
-            plt.plot(delta_u_recorded_mfem, force_full_mfem, linestyle='-', linewidth=4, color='red', label='MPFM')
+            plt.plot(delta_u_recorded_coarse, force_degraded_coarse, linestyle='-', linewidth=4, color='blue', label='PFM (coarse)')
+            plt.plot(delta_u_recorded_fine, force_degraded_fine, linestyle='-', linewidth=4, color='yellow', label='PFM (fine)')
+            plt.plot(delta_u_recorded_mfem, force_degraded_mfem, linestyle='-', linewidth=4, color='red', label='MPFM (coarse)')
         else:            
-            plt.plot(np.absolute(delta_u_recorded_coarse), np.absolute(force_full_coarse), linestyle='-', linewidth=4, color='blue', label='Coarse')
-            plt.plot(np.absolute(delta_u_recorded_fine), np.absolute(force_full_fine), linestyle='-', linewidth=4, color='yellow', label='Fine')
-            plt.plot(np.absolute(delta_u_recorded_mfem), np.absolute(force_full_mfem), linestyle='-', linewidth=4, color='red', label='MPFM')
+            plt.plot(np.absolute(delta_u_recorded_coarse), np.absolute(force_degraded_coarse), linestyle='-', linewidth=4, color='blue', label='PFM (coarse)')
+            plt.plot(np.absolute(delta_u_recorded_fine), np.absolute(force_degraded_fine), linestyle='-', linewidth=4, color='yellow', label='PFM (fine)')
+            plt.plot(np.absolute(delta_u_recorded_mfem), np.absolute(force_degraded_mfem), linestyle='-', linewidth=4, color='red', label='MPFM (coarse)')
 
-        plt.legend(fontsize=14, frameon=False)
-        plt.tick_params(labelsize=14)
-        plt.xlabel("Displacement (mm)", fontsize=14)
-        plt.ylabel("Force (kN)", fontsize=14)
+        plt.legend(fontsize=18, frameon=False, loc='upper left')
+        plt.tick_params(labelsize=18)
+        plt.xlabel("Displacement (mm)", fontsize=18)
+        plt.ylabel("Force (kN)", fontsize=18)
         plt.grid(True)
+        fig.savefig('data/pdf/{}/force_load.pdf'.format(self.case_name), bbox_inches='tight')
         plt.show()
 
 

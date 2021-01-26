@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import glob
 import os
 import ufl
+from . import arguments
 
 fe.parameters["form_compiler"]["quadrature_degree"] = 4
 
@@ -49,7 +50,6 @@ def inverse_smooth_combo(y):
 def ratio_function_ufl(ratio, map_type):
     if map_type == 'linear':
         return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
-
     elif map_type == 'power':
         return ratio**2
     elif map_type == 'identity':
@@ -260,7 +260,11 @@ def distance_function_line_segement_normal(P, A=[-1, 0], B=[1, 0]):
     y2 = AP[1]
     mod = np.sqrt(x1**2 + y1**2)
     df3 = np.absolute(x1 * y2 - y1 * x2) / mod
-    xi3 = np.sqrt(x2**2 + y2**2 - df3**2) / mod
+
+    if x2**2 + y2**2 - df3**2 > 0:
+        xi3 = np.sqrt(x2**2 + y2**2 - df3**2) / mod
+    else:
+        xi3 = 0
 
     if AB_BP > 0:
         df = df1
@@ -458,10 +462,13 @@ def mfem():
     # vtkfile_e << e
 
 
-def show_map():
+def show_map_helper(radius, control_points):
     domain_size = 1.
+    # coarse_division = 51
+    # fine_division = 501
     coarse_division = 51
-    fine_division = 501
+    fine_division = 51
+
     x_coo = []
     y_coo = []
     for i in range(coarse_division + 1):
@@ -475,11 +482,7 @@ def show_map():
     x_coo = np.array(x_coo)
     y_coo = np.array(y_coo)
 
-    p1 = [3./8., 3./8.]
-    p2 = [5./8., 5./8.]
-    radius = 1./4.
-    control_points = np.array([p1, p2])
-    impact_radii = np.array([radius, radius])
+    impact_radii = radius*np.ones(len(control_points))
 
     x_coo_mapped = np.array(x_coo)
     y_coo_mapped = np.array(y_coo)
@@ -490,6 +493,16 @@ def show_map():
             x_coo_mapped[i][j] = x_mapped[0]
             y_coo_mapped[i][j] = x_mapped[1] 
 
+    return x_coo, y_coo, x_coo_mapped, y_coo_mapped
+
+
+def show_fixed_map():
+    radius = 1./4.
+    p1 = [3./8., 3./8.]
+    p2 = [5./8., 5./8.]
+    control_points = np.array([p1, p2])
+    x_coo, y_coo, x_coo_mapped, y_coo_mapped = show_map_helper(radius, control_points)
+
     angles1 = np.linspace(3./4.*np.pi, 7./4.*np.pi, 100)
     x_curve1 = radius * np.cos(angles1) + p1[0]
     y_curve1 = radius * np.sin(angles1) + p1[0]
@@ -498,31 +511,86 @@ def show_map():
     x_curve2 = radius * np.cos(angles2) + p2[0]
     y_curve2 = radius * np.sin(angles2) + p2[1]
 
-    plt.figure(num=0, figsize=(8, 8))
+    fig1 = plt.figure(num=0, figsize=(8, 8))
     for i in range(len(x_coo)):
         plt.plot(x_coo[i], y_coo[i], color='black', linewidth=0.5)
     plt.plot(x_curve1, y_curve1, linestyle='--', color='red')
     plt.plot(x_curve2, y_curve2, linestyle='--', color='red')
     plt.plot([x_curve1[0], x_curve2[-1]], [y_curve1[0], y_curve2[-1]], linestyle='--', color='red')
     plt.plot([x_curve1[-1], x_curve2[0]], [y_curve1[-1], y_curve2[0]], linestyle='--', color='red')
-    plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', marker='o', color='red')
+    plt.plot(control_points[:, 0], control_points[:, 1], linestyle='-', marker='o', color='red')
     plt.gca().set_aspect('equal')
     plt.axis('off')
+    fig1.savefig('data/pdf/{}/omega.pdf'.format(case_name), bbox_inches='tight')
 
-    plt.figure(num=1, figsize=(8, 8))
+    fig2 = plt.figure(num=1, figsize=(8, 8))
     for i in range(len(x_coo)):
         plt.plot(x_coo_mapped[i], y_coo_mapped[i], color='black', linewidth=0.5)
     plt.plot(x_curve1, y_curve1, linestyle='--', color='red')
     plt.plot(x_curve2, y_curve2, linestyle='--', color='red')
     plt.plot([x_curve1[0], x_curve2[-1]], [y_curve1[0], y_curve2[-1]], linestyle='--', color='red')
     plt.plot([x_curve1[-1], x_curve2[0]], [y_curve1[-1], y_curve2[0]], linestyle='--', color='red')
-    plt.plot([p1[0], p2[0]], [p1[1], p2[1]], linestyle='-', marker='o', color='red')
+    plt.plot(control_points[:, 0], control_points[:, 1], linestyle='-', marker='o', color='red')
     plt.gca().set_aspect('equal')
     plt.axis('off')
+    fig2.savefig('data/pdf/{}/omega_hat.pdf'.format(case_name), bbox_inches='tight')
 
-    plt.show()
+
+def show_adaptive_map():
+    radius = 1./4.
+    p1 = [6./16., 5./16.]
+    p2 = [7./16., 7./16.]
+    p3 = [9./16., 9./16.]
+    control_points1 = np.array([p1, p2, p3])
+    x_coo, y_coo, x_coo_mapped1, y_coo_mapped1 = show_map_helper(radius, control_points1)
+
+    fig1 = plt.figure(num=0, figsize=(8, 8))
+    for i in range(len(x_coo)):
+        plt.plot(x_coo_mapped1[i], y_coo_mapped1[i], color='black', linewidth=0.5)
+    plt.plot(control_points1[:, 0], control_points1[:, 1], linestyle='-', marker='o', color='red')
+    plt.gca().set_aspect('equal')
+    plt.axis('off')
+    fig1.savefig('data/pdf/{}/adaptive1.pdf'.format(case_name), bbox_inches='tight')
+
+    p1 = [6./16., 5./16.]
+    p2 = [7./16., 7./16.]
+    p3 = [9./16., 9./16.]
+    p4 = [11./16., 10./16.]
+    control_points2 = np.array([p1, p2, p3, p4])
+    x_coo, y_coo, x_coo_mapped2, y_coo_mapped2 = show_map_helper(radius, control_points2)
+
+    fig2 = plt.figure(num=1, figsize=(8, 8))
+    for i in range(len(x_coo)):
+        plt.plot(x_coo_mapped2[i], y_coo_mapped2[i], color='black', linewidth=0.5)
+    plt.plot(control_points2[:, 0], control_points2[:, 1], linestyle='-', marker='o', color='red')
+    plt.gca().set_aspect('equal')
+    plt.axis('off')
+    fig2.savefig('data/pdf/{}/adaptive2.pdf'.format(case_name), bbox_inches='tight')
+
+
+def plot_ratio():
+    x1 = np.linspace(0, 0.5, 101)
+    y1 = 0.5*x1
+    x2 = np.linspace(0.5, 1, 101)
+    y2 = -6*x2**3 + 14*x2**2 -9*x2 + 2
+    x3 = np.linspace(1, 2, 101)
+    y3 = x3
+    fig = plt.figure()
+    plt.plot(x1, y1, color='black',)
+    plt.plot(x2, y2, color='black',)
+    plt.plot(x3, y3, color='black')
+    plt.grid(True)
+    plt.axis('equal')
+    plt.tick_params(labelsize=14)
+    plt.xlabel(r'$\eta$', fontsize=14)
+    plt.ylabel(r'$q(\eta)$', fontsize=14)
+    fig.savefig('data/pdf/{}/ratio.pdf'.format(case_name), bbox_inches='tight')
 
 
 if __name__ == '__main__':
+    case_name = 'mfem'
     # mfem()
-    show_map()
+    # show_fixed_map()
+    show_adaptive_map()
+    # plot_ratio()
+    plt.show()

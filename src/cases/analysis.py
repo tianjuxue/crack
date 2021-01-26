@@ -18,6 +18,7 @@ class Analysis(MappedPDE):
         self.solution_scheme = 'explicit'
         # self.map_type = 'smooth'
         # self.local_refinement_iteration = 2
+        self.model_flag = args.model_flag
         self.map_type = args.map_type
         self.local_refinement_iteration = args.local_refinement_iteration
         self.psi_plus_linear_elasticity = args.psi_plus_linear_elasticity
@@ -200,14 +201,39 @@ class Analysis(MappedPDE):
         self.u_energy_error = self.energy_norm(self.x_new - self.u_exact)
         print("Displacement error energy_norm is {}".format(self.u_energy_error))  
 
-
-    # Override base class method
-    def save_data_in_loop(self):
-        pass
-
+ 
     def create_custom_xdmf_files(self):
-        pass
+        self.file_results_custom = fe.XDMFFile('data/xdmf/{}/u_refine_{}_mfem_{}_model_{}.xdmf'.format(self.case_name, 
+            self.local_refinement_iteration, self.map_flag, self.model_flag))
+        self.file_results_custom.parameters["functions_share_mesh"] = True
 
+
+    def save_data_in_loop(self):
+        self.file_results_custom.write(self.x_new, self.i)
+        self.file_results_custom.write(self.d_new, self.i)
+        self.file_results_custom.write(self.map_plot, self.i)
+
+        if self.map_flag:
+            np.save('data/numpy/{}/control_points.npy'.format(self.case_name), self.control_points)
+            np.save('data/numpy/{}/impact_radii.npy'.format(self.case_name), self.impact_radii)
+            np.save('data/numpy/{}/boundary_info.npy'.format(self.case_name), self.boundary_info)
+
+
+    # For analysis purposes
+    def interpolate_solution(self):
+        fix_load = float(self.fix_load)
+        np_x = np.asarray(self.x_new.vector())
+        for i in range(len(np_x)):
+            if np_x[i] < 3./8.*fix_load:
+                np_x[i] = 0
+            else:
+                np_x[i] = fix_load
+
+        self.x_new.vector()[:] = np_x
+        self.file_results.write(self.x_new, 0)
+
+
+    # Override base class method            
     def show_force_displacement(self):
         pass
 
@@ -227,6 +253,7 @@ def run_one_model(args, model_flag, map_type):
         psi_plus_linear_elasticity = psi_plus_linear_elasticity_model_C
         psi_minus_linear_elasticity = psi_minus_linear_elasticity_model_C
 
+    args.model_flag = model_flag
     args.map_type = map_type
 
     local_refinement_iterations = [0, 1, 2, 3]
@@ -251,6 +278,7 @@ def main(args):
     # Default settings in case needed
     args.psi_plus_linear_elasticity = psi_plus_linear_elasticity_model_A
     args.psi_minus_linear_elasticity = psi_minus_linear_elasticity_model_A
+    args.model_flag = 0
     args.map_type = 'identity'
     args.local_refinement_iteration = 0
     pde = Analysis(args)
@@ -261,18 +289,24 @@ def main(args):
     if post_processing_flag:
        
         mesh_sizes = np.load('data/numpy/{}/mesh_sizes.npy'.format(pde.case_name))
-
-        fig, ax = plt.subplots(num=0, figsize=(8, 6))
+        
         for model_flag in model_flags:
-            # fig, ax = plt.subplots(num=model_flag, figsize=(8, 6))
+            fig, ax = plt.subplots(num=model_flag, figsize=(8, 6))
             for map_type in map_types:
                 label = 'MPFM' if map_type == 'smooth' else 'PFM'
-                label = label + '-Model{}'.format(model_flag)
-                # color = 'red' if map_type == 'smooth' else 'blue'
-                u_energy_errors = np.load('data/numpy/{}/model_{}_map_{}.npy'.format(pde.case_name, model_flag, map_type))
-                plt.plot(mesh_sizes, u_energy_errors, linestyle='--', marker='s', label=label)
 
-                print(np.log2(u_energy_errors[-1]/u_energy_errors[1]))
+                if model_flag == 0:
+                    label = label + ' - Isotropic'
+                elif model_flag == 1:
+                    label = label + ' - Anisotropic (Amor)'
+                else:
+                    label = label + ' - Anisotropic (Miehe)'
+
+                color = 'red' if map_type == 'smooth' else 'blue'
+                u_energy_errors = np.load('data/numpy/{}/model_{}_map_{}.npy'.format(pde.case_name, model_flag, map_type))
+                plt.plot(mesh_sizes, u_energy_errors, linestyle='--', linewidth=2, marker='s', markersize=10, label=label, color=color)
+
+                print(np.log2(u_energy_errors[1]/u_energy_errors[-1]))
 
             plt.yscale("log")
             plt.xscale("log")
@@ -280,14 +314,14 @@ def main(args):
             # ax.set_xticks([1e-2])
             # ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
 
-            ax.get_xaxis().set_tick_params(which='minor', labelsize=12)
-            ax.get_xaxis().set_tick_params(which='major', labelsize=14)
-            ax.get_yaxis().set_tick_params(which='minor', labelsize=12)
-            ax.get_yaxis().set_tick_params(which='major', labelsize=14)
+            ax.get_xaxis().set_tick_params(which='minor', labelsize=15)
+            ax.get_xaxis().set_tick_params(which='major', labelsize=17)
+            ax.get_yaxis().set_tick_params(which='minor', labelsize=15, rotation=90)
+            ax.get_yaxis().set_tick_params(which='major', labelsize=17, rotation=90)
 
-            plt.legend(fontsize=14, frameon=False)
-            plt.xlabel("Mesh size", fontsize=14)
-            plt.ylabel("Error", fontsize=14)
+            plt.legend(fontsize=18, frameon=False)
+            plt.xlabel(r"$h$", fontsize=20)
+            plt.ylabel(r"$\Vert \boldsymbol{u}^h - \boldsymbol{u}_e \Vert_E$", fontsize=20)
 
             # plt.axis('equal')
 
@@ -296,27 +330,29 @@ def main(args):
             p3 = [p2[0], np.exp(0.5*np.log(p2[0]/p1[0]))*p1[1]]
             ax.plot([p1[0], p2[0], p3[0], p1[0]], [p1[1], p2[1], p3[1], p1[1]], color='black')  
 
-            plt.text(p1[0] + 15*1e-4, p1[1] + 20*1e-4, '0.5', fontsize=14)          
+            plt.text(p1[0] + 15*1e-4, p1[1] + 20*1e-4, '0.5', fontsize=18)
 
-        plt.show()
-
+            fig.savefig('data/pdf/{}/convergence_model_{}.pdf'.format(pde.case_name, model_flag), bbox_inches='tight')
     else:
         for model_flag in model_flags:
             for map_type in map_types:
                 run_one_model(args, model_flag, map_type)
 
 
-def test(args):
+def generate_interpolate_xdmf(args):
     args.psi_plus_linear_elasticity = psi_plus_linear_elasticity_model_A
     args.psi_minus_linear_elasticity = psi_minus_linear_elasticity_model_A
+    args.model_flag = 0
     args.map_type = 'identity'
     args.local_refinement_iteration = 0
     pde = Analysis(args)
-    pde = Analysis(args)
     pde.staggered_solve()
-    pde.evaluate_errors()
+    pde.interpolate_solution()
+
 
 
 if __name__ == '__main__':
     args = arguments.args
     main(args)
+    # generate_interpolate_xdmf(args)
+    plt.show()
