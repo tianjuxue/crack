@@ -16,12 +16,14 @@ from ..mesh_converter import save_with_meshio, load_with_meshio
 class LShape(MappedPDE):
     def __init__(self, args):
         self.case_name = "L_shape"
-        self.mesh_refinement_level = "refine_1"
         self.solution_scheme = 'explicit'
         # self.map_type = 'identity'
         # self.local_refinement_iteration = 0
         self.map_type = args.map_type
         self.local_refinement_iteration = args.local_refinement_iteration
+
+        self.mesh_refinement_level = "refine_1" if self.local_refinement_iteration == 0 else "refine_2"
+
         super(LShape, self).__init__(args)
 
         # self.displacements = 1e-2*np.linspace(0.0, 0.15, 51)
@@ -87,18 +89,25 @@ class LShape(MappedPDE):
         self.height = 500
         self.segment = 30
  
+
+        # domain = mshr.Polygon([fe.Point(0., 0.), 
+        #                        fe.Point(0., self.height)])
+        # resolution = 100 if self.local_refinement_iteration == 0 else 200
+        # self.mesh = mshr.generate_mesh(domain, resolution)
+
+
         # Reference
         # https://scicomp.stackexchange.com/questions/32647/how-to-use-meshfunction-in-fenics-dolfin
         # https://fenicsproject.org/qa/596/setting-condition-for-mesh-refinement/
-        for i in range(self.local_refinement_iteration):
-            cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
-            cell_markers.set_all(False)
-            for cell in fe.cells(self.mesh):
-                p = cell.midpoint()
-                if  p[0] > 1./20.*self.length and p[0] < 10.5/20.*self.length and p[1] > 9.5/20.*self.height and p[1] < 13/20*self.height:
-                # if np.sqrt((p[0] - self.length/2.)**2 + (p[1] - self.height/2.)**2) < self.length/5.:
-                    cell_markers[cell] = True
-            self.mesh = fe.refine(self.mesh, cell_markers)
+        # for i in range(self.local_refinement_iteration):
+        #     cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
+        #     cell_markers.set_all(False)
+        #     for cell in fe.cells(self.mesh):
+        #         p = cell.midpoint()
+        #         if  p[0] > 1./20.*self.length and p[0] < 10.5/20.*self.length and p[1] > 9.5/20.*self.height and p[1] < 13/20*self.height:
+        #         # if np.sqrt((p[0] - self.length/2.)**2 + (p[1] - self.height/2.)**2) < self.length/5.:
+        #             cell_markers[cell] = True
+        #     self.mesh = fe.refine(self.mesh, cell_markers)
 
         length = self.length
         height = self.height

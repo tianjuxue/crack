@@ -37,7 +37,7 @@ class MappedPDE(object):
         self.boundary_info = None
         self.rho_default = 15.
         self.d_integral_interval = 1.5*self.rho_default
-        self.compute_and_save_intermediate_results = False
+        self.compute_and_save_intermediate_results = True
 
 
     def preparation(self):

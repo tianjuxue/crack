@@ -76,16 +76,18 @@ class ThreePointBending(MappedPDE):
                   fe.Point(self.length/2. - self.notch_length/2., self.height),
                   fe.Point(0., self.height)])
 
-        self.mesh = mshr.generate_mesh(domain, 100)
+        resolution = 100 if self.local_refinement_iteration == 0 else 200
+        self.mesh = mshr.generate_mesh(domain, resolution)
 
-        for i in range(self.local_refinement_iteration):
-            cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
-            cell_markers.set_all(False)
-            for cell in fe.cells(self.mesh):
-                p = cell.midpoint()
-                if  p[0] > 14./32.*self.length and p[0] < 18./32.*self.length and p[1] < self.height - self.notch_height:
-                    cell_markers[cell] = True
-            self.mesh = fe.refine(self.mesh, cell_markers)
+        # self.mesh = mshr.generate_mesh(domain, 100)
+        # for i in range(self.local_refinement_iteration):
+        #     cell_markers = fe.MeshFunction('bool', self.mesh, self.mesh.topology().dim())
+        #     cell_markers.set_all(False)
+        #     for cell in fe.cells(self.mesh):
+        #         p = cell.midpoint()
+        #         if  p[0] > 14./32.*self.length and p[0] < 18./32.*self.length and p[1] < self.height - self.notch_height:
+        #             cell_markers[cell] = True
+        #     self.mesh = fe.refine(self.mesh, cell_markers)
 
         length = self.length
         height = self.height
