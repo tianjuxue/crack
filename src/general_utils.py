@@ -19,6 +19,7 @@ def write_vtk(case_name, step):
                 meshio.write_points_cells('data/pvd/post_processing/{}/u{}.vtu'.format(case_name, k), points, cells, point_data={'m':point_data['m']})
 
 
+# To produce the figures in the section "Numerical examples"
 def show_solution(case_name, step=None, physical_domain=True):
     control_points = np.load('data/numpy/{}/control_points.npy'.format(case_name))
     if case_name == 'analysis':

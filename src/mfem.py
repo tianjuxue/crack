@@ -576,8 +576,8 @@ def plot_ratio():
     x3 = np.linspace(1, 2, 101)
     y3 = x3
     fig = plt.figure()
-    plt.plot(x1, y1, color='black',)
-    plt.plot(x2, y2, color='black',)
+    plt.plot(x1, y1, color='black')
+    plt.plot(x2, y2, color='black')
     plt.plot(x3, y3, color='black')
     plt.grid(True)
     plt.axis('equal')
@@ -587,10 +587,33 @@ def plot_ratio():
     fig.savefig('data/pdf/{}/ratio.pdf'.format(case_name), bbox_inches='tight')
 
 
+def plot_1d_map_helper(x, y, fig_id, label_x, label_y):
+    fig = plt.figure(fig_id)
+    plt.plot(x, y, color='black')
+    plt.axis('equal')
+    plt.tick_params(labelsize=18)
+    plt.xlabel(label_x, fontsize=22)
+    plt.ylabel(label_y, fontsize=22)
+    plt.xlim([-1, 1])
+    plt.ylim([-0.1, 1])
+    plt.grid(True)
+    fig.savefig('data/pdf/{}/1d_map_{}_ratio.pdf'.format(case_name, fig_id), bbox_inches='tight')
+
+
+# To produce the igure in the section "Introduction"
+def plot_1d_map():
+    x = np.linspace(-1, 1, 1001)
+    y = np.exp(-np.absolute(x)/0.1)
+    x_hat = np.where(x > 0, x**0.5, -(-x)**0.5)
+    plot_1d_map_helper(x, y, 0, r'$x$', r'$d(x)$')
+    plot_1d_map_helper(x_hat, y, 1, r'$\hat{x}$', r'$d(\hat{x})$')
+
+
 if __name__ == '__main__':
     case_name = 'mfem'
     # mfem()
     # show_fixed_map()
-    show_adaptive_map()
+    # show_adaptive_map()
     # plot_ratio()
-    plt.show()
+    plot_1d_map()
+    # plt.show()
