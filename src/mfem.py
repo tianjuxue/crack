@@ -575,15 +575,19 @@ def plot_ratio():
     y2 = -6*x2**3 + 14*x2**2 -9*x2 + 2
     x3 = np.linspace(1, 2, 101)
     y3 = x3
+    x_id = np.linspace(0, 2, 101)
+    y_id = x_id
     fig = plt.figure()
     plt.plot(x1, y1, color='black')
     plt.plot(x2, y2, color='black')
-    plt.plot(x3, y3, color='black')
+    plt.plot(x3, y3, color='black', label=r'$q(\eta)$')
+    plt.plot(x_id, y_id, color='black', linestyle='--', label=r'id')
     plt.grid(True)
+    plt.legend(fontsize=18)
     plt.axis('equal')
     plt.tick_params(labelsize=14)
-    plt.xlabel(r'$\eta$', fontsize=14)
-    plt.ylabel(r'$q(\eta)$', fontsize=14)
+    plt.xlabel(r'$\eta$', fontsize=18)
+    # plt.ylabel(r'$q(\eta)$', fontsize=14)
     fig.savefig('data/pdf/{}/ratio.pdf'.format(case_name), bbox_inches='tight')
 
 
@@ -614,6 +618,6 @@ if __name__ == '__main__':
     # mfem()
     # show_fixed_map()
     # show_adaptive_map()
-    # plot_ratio()
-    plot_1d_map()
-    # plt.show()
+    plot_ratio()
+    # plot_1d_map()
+    plt.show()
