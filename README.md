@@ -1,4 +1,4 @@
-### Mapped Phase field method for simulating quasi-static brittle fracture based on FEniCS
+# Mapped Phase field method for simulating quasi-static brittle fracture based on FEniCS
 
 This repository contains an implementation of our paper (to appear) on _Computer Methods in Applied Mechanics and Engineering_: "[Mapped phase field method for brittle fracture](https://www.journals.elsevier.com/computer-methods-in-applied-mechanics-and-engineering)". We proposed to use a local reparametrization of the physical domain near crack, so that without modifying the finite element mesh we obtain higher accuracy for crack simulation based on the phase field method.
 
