@@ -44,10 +44,11 @@ class Analysis(MappedPDE):
         # print(self.mesh.hmin())
         # print(1./2.*np.sqrt(2)*(1./2.)**self.total_refinement)
 
-        if self.map_type == 'linear' or self.map_type == 'smooth':
-            self.map_flag = True
-        elif self.map_type == 'identity':
+        if self.map_type == 'identity':
             self.map_flag = False
+        else:
+            self.map_flag = True
+
         self.finish_flag = True
 
         self.initialize_control_points_and_impact_radii()
@@ -189,6 +190,7 @@ class Analysis(MappedPDE):
 
     def evaluate_errors(self): 
         print("Evaluate L2 errors...")
+        print("Model {}, map {}, refinement {}".format(self.model_flag), self.map_type, self.local_refinement_iteration)
         u_error_l2 = np.sqrt(float(fe.assemble(fe.inner(self.x_new - self.u_exact, self.x_new - self.u_exact) * fe.det(self.grad_gamma) * fe.dx)))
         u_error_semi_h1 = np.sqrt(float(fe.assemble(fe.inner(self.mfem_grad(self.x_new - self.u_exact), \
                                                              self.mfem_grad(self.x_new - self.u_exact)) * fe.det(self.grad_gamma) * fe.dx)))
@@ -284,7 +286,8 @@ def main(args):
     pde = Analysis(args)
 
     model_flags = [0, 1, 2]
-    map_types = ['identity', 'smooth']
+
+    map_types = ['identity', 'smooth', 'power']
 
     if post_processing_flag:
        
@@ -293,8 +296,18 @@ def main(args):
         for model_flag in model_flags:
             fig, ax = plt.subplots(num=model_flag, figsize=(8, 6))
             for map_type in map_types:
-                label = 'MPFM' if map_type == 'smooth' else 'PFM'
-
+                if map_type == 'identity':
+                    label = 'PFM'
+                    color = 'blue'
+                    marker = 's'
+                elif map_type == 'smooth':
+                    label = 'MPFM-L'
+                    color = 'red'
+                    marker = 'o'
+                else:
+                    label = 'MPFM-Q'
+                    color = 'orange'
+                    marker = '^'
                 if model_flag == 0:
                     label = label + ' - Isotropic'
                 elif model_flag == 1:
@@ -302,9 +315,8 @@ def main(args):
                 else:
                     label = label + ' - Anisotropic (Miehe)'
 
-                color = 'red' if map_type == 'smooth' else 'blue'
                 u_energy_errors = np.load('data/numpy/{}/model_{}_map_{}.npy'.format(pde.case_name, model_flag, map_type))
-                plt.plot(mesh_sizes, u_energy_errors, linestyle='--', linewidth=2, marker='s', markersize=10, label=label, color=color)
+                plt.plot(mesh_sizes, u_energy_errors, linestyle='--', linewidth=2, marker=marker, markersize=10, label=label, color=color)
 
                 print(np.log2(u_energy_errors[1]/u_energy_errors[-1]))
 
@@ -319,7 +331,7 @@ def main(args):
             ax.get_yaxis().set_tick_params(which='minor', labelsize=15, rotation=90)
             ax.get_yaxis().set_tick_params(which='major', labelsize=17, rotation=90)
 
-            plt.legend(fontsize=18, frameon=False)
+            plt.legend(fontsize=16, frameon=False)
             plt.xlabel(r"$h$", fontsize=20)
             plt.ylabel(r"$\Vert \boldsymbol{u}^h - \boldsymbol{u}_e \Vert_E$", fontsize=20)
 
@@ -329,8 +341,14 @@ def main(args):
             p2 = [4*1e-2, 2*1e-2]
             p3 = [p2[0], np.exp(0.5*np.log(p2[0]/p1[0]))*p1[1]]
             ax.plot([p1[0], p2[0], p3[0], p1[0]], [p1[1], p2[1], p3[1], p1[1]], color='black')  
+            plt.text(p1[0] + 1.5*1e-3, p1[1] + 2.1*1e-3, '0.5', fontsize=18)
 
-            plt.text(p1[0] + 15*1e-4, p1[1] + 20*1e-4, '0.5', fontsize=18)
+
+            p1 = [3*1e-2, 6*1e-3]
+            p2 = [4*1e-2, 6*1e-3]
+            p3 = [p2[0], np.exp(np.log(p2[0]/p1[0]))*p1[1]]
+            ax.plot([p1[0], p2[0], p3[0], p1[0]], [p1[1], p2[1], p3[1], p1[1]], color='black')  
+            plt.text(p1[0] + 4*1e-3, p1[1] + 1.2*1e-3, '1', fontsize=18)
 
             fig.savefig('data/pdf/{}/convergence_model_{}.pdf'.format(pde.case_name, model_flag), bbox_inches='tight')
     else:

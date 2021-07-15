@@ -51,7 +51,7 @@ def ratio_function_ufl(ratio, map_type):
     if map_type == 'linear':
         return fe.conditional(fe.lt(ratio, -1./2.), 3./2.* ratio + 1./2., fe.conditional(fe.gt(ratio, 1./2.), 3./2.* ratio - 1./2., 1./2.* ratio))
     elif map_type == 'power':
-        return ratio**2
+        return ratio**(2.)
     elif map_type == 'identity':
         return ratio
     elif map_type == 'smooth':
@@ -65,7 +65,7 @@ def inverse_ratio_function_ufl(ratio, map_type):
     if map_type == 'linear':
         return fe.conditional(fe.lt(ratio, -1./4.), 2./3.* ratio - 1./3., fe.conditional(fe.gt(ratio, 1./4.), 2./3.* ratio + 1./3., 2. * ratio))
     elif map_type == 'power':
-        return ratio**2
+        return ratio**(0.5)
     elif map_type == 'identity':
         return ratio
     else:
@@ -81,7 +81,7 @@ def ratio_function_normal(ratio, map_type):
         else:
             return 3./2.*ratio + 1./2.
     elif map_type == 'power':
-        return ratio**(1.5)
+        return ratio**(2.)
     elif map_type == 'identity':
         return ratio
     elif map_type == 'smooth':
@@ -99,7 +99,7 @@ def inverse_ratio_function_normal(ratio, map_type):
         else:
             return 2./3.*ratio - 1./3.
     elif map_type == 'power':
-        return ratio**(1/1.5)
+        return ratio**(0.5)
     elif map_type == 'identity':
         return ratio
     elif map_type == 'smooth':
