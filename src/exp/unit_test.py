@@ -1,4 +1,4 @@
-'''A minimum working example using both staggered monolithic solvers
+'''A minimum working example using both staggered and monolithic solvers
 '''
 import fenics as fe
 import sys

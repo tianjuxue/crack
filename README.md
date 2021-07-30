@@ -15,10 +15,18 @@ You may need to create folders to hold data, e.g.,
 crack/data/pvd/brittle
 ```
 
+For educational purposes of building phase field models with FEniCS, you may find the file
+
+```
+crack/src/exp/unit_test.py
+```
+
+useful.
+
 ## Demos
 
 The following vedios correspond to the four MPFM numerical examples in "Section 5. Numerical examples" in the manuscript.
- 
+
 https://user-images.githubusercontent.com/45647025/125759760-9913d7bb-0369-4895-8d23-597e7ee8c83e.mp4
 
 The left image shows x10 displacement, and the right image shows the reconstruced discretization of the physical domain.
